@@ -31,7 +31,7 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
         <div className="brand-mark">SSR</div>
 
         <div>
-          <h2>Shiv Sakti</h2>
+          <h2>Shiv Shakti</h2>
           <p>Recovery CRM V2</p>
         </div>
       </div>
@@ -56,3 +56,4 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
 }
 
 export default Sidebar;
+

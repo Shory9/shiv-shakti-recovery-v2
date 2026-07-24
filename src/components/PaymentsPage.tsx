@@ -706,3 +706,4 @@ function PaymentsPage() {
 }
 
 export default PaymentsPage;
+

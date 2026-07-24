@@ -123,13 +123,15 @@ function LoginPage({ onLogin }: LoginPageProps) {
 
         <div className="brand-content">
           <div className="large-login-logo">
-            <span className="logo-scale">⚖</span>
-            <strong>SSR</strong>
-            <span className="logo-arrow">↗</span>
+            <img
+              src="/logo.png"
+              alt="Shiv Shakti Recovery CRM"
+              className="large-logo-image"
+            />
           </div>
 
           <h1>
-            SHIV <span>SAKTI</span>
+            SHIV <span>ShAKTI</span>
           </h1>
 
           <h2>RECOVERY CRM</h2>
@@ -170,12 +172,15 @@ function LoginPage({ onLogin }: LoginPageProps) {
       <section className="login-form-panel">
         <div className="premium-login-card">
           <div className="small-login-logo">
-            <span>⚖</span>
-            <strong>SSR</strong>
+            <img
+              src="/logo.png"
+              alt="Shiv Shakti Recovery CRM"
+              className="small-logo-image"
+            />
           </div>
 
           <h1>Admin Login</h1>
-          <p className="login-subtitle">Shiv Sakti Recovery CRM V2</p>
+          <p className="login-subtitle">Shiv Shakti Recovery CRM V2</p>
 
           <form className="premium-login-form" onSubmit={handleSubmit}>
             <label htmlFor="admin-email">Email Address</label>
@@ -215,9 +220,7 @@ function LoginPage({ onLogin }: LoginPageProps) {
                 type="button"
                 className="password-toggle"
                 onClick={() => setShowPassword((current) => !current)}
-                aria-label={
-                  showPassword ? "Hide password" : "Show password"
-                }
+                aria-label={showPassword ? "Hide password" : "Show password"}
                 disabled={loading}
               >
                 {showPassword ? "🙈" : "👁"}
@@ -262,7 +265,7 @@ function LoginPage({ onLogin }: LoginPageProps) {
           </form>
 
           <div className="login-footer">
-            <strong>Shiv Sakti</strong> Recovery CRM V2
+            <strong>Shiv Shakti</strong> Recovery CRM V2
             <span>
               Powered by <b>Akky OS</b>
             </span>

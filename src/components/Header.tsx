@@ -17,7 +17,7 @@ function Header({ activeMenu, onLogout }: HeaderProps) {
   return (
     <header className="topbar">
       <div>
-        <p className="eyebrow">SHIV SAKTI RECOVERY NIMACH</p>
+        <p className="eyebrow">Shiv Shakti RECOVERY NIMACH</p>
         <h1>{activeMenu}</h1>
         <p>Cases, recovery aur field team ka complete management.</p>
       </div>
@@ -43,3 +43,4 @@ function Header({ activeMenu, onLogout }: HeaderProps) {
 }
 
 export default Header;
+

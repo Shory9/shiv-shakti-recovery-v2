@@ -26,3 +26,4 @@ function RecoveryChart() {
 }
 
 export default RecoveryChart;
+
