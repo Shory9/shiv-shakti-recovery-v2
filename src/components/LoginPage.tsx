@@ -131,7 +131,7 @@ function LoginPage({ onLogin }: LoginPageProps) {
           </div>
 
           <h1>
-            SHIV <span>ShAKTI</span>
+            SHIV <span>SHAKTI</span>
           </h1>
 
           <h2>RECOVERY CRM</h2>
