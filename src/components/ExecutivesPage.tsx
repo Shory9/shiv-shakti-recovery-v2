@@ -1,121 +1,137 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../supabaseClient";
 
-type ExecutiveAppStatus =
-  | "Online"
-  | "Offline"
-  | "On Visit"
-  | "Completed";
+type ExecutiveStatus = "Active" | "Inactive";
 
-type ExecutiveAppItem = {
+type ExecutiveRow = {
+  id: number;
+  code: string | null;
+  name: string | null;
+  mobile: string | null;
+  area: string | null;
+  status: string | null;
+  created_at?: string | null;
+};
+
+type ExecutiveView = {
   id: number;
   code: string;
   name: string;
   mobile: string;
   area: string;
+  status: ExecutiveStatus;
   assignedCases: number;
-  completedToday: number;
-  collectionToday: number;
-  battery: number;
-  lastSeen: string;
-  status: ExecutiveAppStatus;
+  completedCases: number;
 };
 
-const executives: ExecutiveAppItem[] = [
-  {
-    id: 1,
-    code: "EXE-001",
-    name: "Bablu Nagda",
-    mobile: "9876543210",
-    area: "Neemuch",
-    assignedCases: 145,
-    completedToday: 18,
-    collectionToday: 42500,
-    battery: 82,
-    lastSeen: "Just now",
-    status: "Online",
-  },
-  {
-    id: 2,
-    code: "EXE-002",
-    name: "Kailash Nagda",
-    mobile: "9988776655",
-    area: "Manasa",
-    assignedCases: 126,
-    completedToday: 14,
-    collectionToday: 28600,
-    battery: 64,
-    lastSeen: "3 min ago",
-    status: "On Visit",
-  },
-  {
-    id: 3,
-    code: "EXE-003",
-    name: "Rahul Kumar",
-    mobile: "9123456780",
-    area: "Mandsaur",
-    assignedCases: 112,
-    completedToday: 11,
-    collectionToday: 19300,
-    battery: 48,
-    lastSeen: "8 min ago",
-    status: "Online",
-  },
-  {
-    id: 4,
-    code: "EXE-004",
-    name: "Shivam Chouhan",
-    mobile: "9001122334",
-    area: "Jaora",
-    assignedCases: 98,
-    completedToday: 16,
-    collectionToday: 34750,
-    battery: 91,
-    lastSeen: "12 min ago",
-    status: "Completed",
-  },
-  {
-    id: 5,
-    code: "EXE-005",
-    name: "Nayan Singh",
-    mobile: "9012345678",
-    area: "Sailana",
-    assignedCases: 87,
-    completedToday: 7,
-    collectionToday: 12800,
-    battery: 27,
-    lastSeen: "1 hour ago",
-    status: "Offline",
-  },
-  {
-    id: 6,
-    code: "EXE-006",
-    name: "Akshat Parmar",
-    mobile: "9090909090",
-    area: "Ratlam",
-    assignedCases: 104,
-    completedToday: 9,
-    collectionToday: 15600,
-    battery: 73,
-    lastSeen: "5 min ago",
-    status: "Online",
-  },
-];
+type FormData = {
+  code: string;
+  name: string;
+  mobile: string;
+  area: string;
+  status: ExecutiveStatus;
+};
 
-const statusOptions: Array<
-  ExecutiveAppStatus | "All"
-> = [
-  "All",
-  "Online",
-  "Offline",
-  "On Visit",
-  "Completed",
-];
+const emptyForm: FormData = {
+  code: "",
+  name: "",
+  mobile: "",
+  area: "",
+  status: "Active",
+};
 
-function ExecutiveAppPage() {
+function ExecutivesPage() {
+  const [executives, setExecutives] = useState<ExecutiveView[]>([]);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<
-    ExecutiveAppStatus | "All"
-  >("All");
+  const [statusFilter, setStatusFilter] = useState<ExecutiveStatus | "All">("All");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [formData, setFormData] = useState<FormData>(emptyForm);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void loadExecutives();
+  }, []);
+
+  const fetchAllCases = async () => {
+    const allRows: Array<{ assigned_executive_id: number | null; status: string | null }> = [];
+    const pageSize = 1000;
+    let from = 0;
+
+    while (true) {
+      const { data, error } = await supabase
+        .from("cases")
+        .select("assigned_executive_id,status")
+        .range(from, from + pageSize - 1);
+
+      if (error) throw error;
+
+      const rows = (data ?? []) as Array<{
+        assigned_executive_id: number | null;
+        status: string | null;
+      }>;
+
+      allRows.push(...rows);
+      if (rows.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return allRows;
+  };
+
+  const loadExecutives = async () => {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const [executiveResult, cases] = await Promise.all([
+        supabase
+          .from("executives")
+          .select("id,code,name,mobile,area,status,created_at")
+          .order("created_at", { ascending: false }),
+        fetchAllCases(),
+      ]);
+
+      if (executiveResult.error) throw executiveResult.error;
+
+      const rows = (executiveResult.data ?? []) as ExecutiveRow[];
+
+      const mapped = rows.map<ExecutiveView>((row) => {
+        const assigned = cases.filter(
+          (item) => Number(item.assigned_executive_id) === Number(row.id)
+        );
+
+        const completed = assigned.filter((item) => {
+          const value = String(item.status ?? "").toLowerCase();
+          return value === "completed" || value === "paid";
+        }).length;
+
+        return {
+          id: row.id,
+          code: row.code ?? "",
+          name: row.name ?? "",
+          mobile: row.mobile ?? "",
+          area: row.area ?? "",
+          status: row.status === "Inactive" ? "Inactive" : "Active",
+          assignedCases: assigned.length,
+          completedCases: completed,
+        };
+      });
+
+      setExecutives(mapped);
+    } catch (error) {
+      console.error("Executives load error:", error);
+      setMessage(
+        error instanceof Error
+          ? `Executives load error: ${error.message}`
+          : "Executives load nahi hue."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredExecutives = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -129,744 +145,217 @@ function ExecutiveAppPage() {
         executive.area.toLowerCase().includes(query);
 
       const matchesStatus =
-        status === "All" ||
-        executive.status === status;
+        statusFilter === "All" || executive.status === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
-  }, [search, status]);
+  }, [executives, search, statusFilter]);
 
-  const onlineCount = executives.filter(
-    (executive) =>
-      executive.status === "Online" ||
-      executive.status === "On Visit"
-  ).length;
+  const activeCount = executives.filter((item) => item.status === "Active").length;
+  const assignedCount = executives.reduce((sum, item) => sum + item.assignedCases, 0);
+  const completedCount = executives.reduce((sum, item) => sum + item.completedCases, 0);
 
-  const completedToday = executives.reduce(
-    (total, executive) =>
-      total + executive.completedToday,
-    0
-  );
+  const openAdd = () => {
+    setEditingId(null);
+    setFormData(emptyForm);
+    setShowModal(true);
+    setMessage("");
+  };
 
-  const todayCollection = executives.reduce(
-    (total, executive) =>
-      total + executive.collectionToday,
-    0
-  );
+  const openEdit = (executive: ExecutiveView) => {
+    setEditingId(executive.id);
+    setFormData({
+      code: executive.code,
+      name: executive.name,
+      mobile: executive.mobile,
+      area: executive.area,
+      status: executive.status,
+    });
+    setShowModal(true);
+    setMessage("");
+  };
 
-  const totalAssignedCases = executives.reduce(
-    (total, executive) =>
-      total + executive.assignedCases,
-    0
-  );
+  const saveExecutive = async () => {
+    if (!formData.name.trim() || !formData.area.trim()) {
+      setMessage("Executive Name aur Area required hai.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    const payload = {
+      code: formData.code.trim(),
+      name: formData.name.trim(),
+      mobile: formData.mobile.trim(),
+      area: formData.area.trim(),
+      status: formData.status,
+    };
+
+    try {
+      if (editingId === null) {
+        const { error } = await supabase.from("executives").insert(payload);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("executives")
+          .update(payload)
+          .eq("id", editingId);
+
+        if (error) throw error;
+      }
+
+      setShowModal(false);
+      setFormData(emptyForm);
+      setEditingId(null);
+      await loadExecutives();
+    } catch (error) {
+      console.error("Executive save error:", error);
+      setMessage(
+        error instanceof Error
+          ? `Save error: ${error.message}`
+          : "Executive save nahi hua."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteExecutive = async (id: number) => {
+    const assignedCases = executives.find((item) => item.id === id)?.assignedCases ?? 0;
+
+    if (assignedCases > 0) {
+      setMessage(
+        "Is executive ke historical cases assigned hain. Delete ke badle status Inactive karein."
+      );
+      return;
+    }
+
+    if (!window.confirm("Kya aap is executive ko delete karna chahte hain?")) return;
+
+    const { error } = await supabase.from("executives").delete().eq("id", id);
+
+    if (error) {
+      setMessage(`Delete error: ${error.message}`);
+      return;
+    }
+
+    await loadExecutives();
+  };
 
   return (
-    <div className="executive-app-page">
-      <style>{`
-        .executive-app-page {
-          min-height: 100%;
-          padding: 26px;
-          background:
-            radial-gradient(
-              circle at top right,
-              rgba(37, 99, 235, 0.08),
-              transparent 28%
-            ),
-            #f5f7fb;
-          color: #0f172a;
-          box-sizing: border-box;
-        }
-
-        .executive-app-page * {
-          box-sizing: border-box;
-        }
-
-        .executive-app-hero {
-          position: relative;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 22px;
-          overflow: hidden;
-          padding: 28px;
-          border-radius: 22px;
-          color: white;
-          background:
-            linear-gradient(
-              135deg,
-              rgba(255, 255, 255, 0.06),
-              transparent
-            ),
-            linear-gradient(
-              135deg,
-              #07192d 0%,
-              #0d2f55 56%,
-              #12497b 100%
-            );
-          box-shadow: 0 18px 45px rgba(7, 25, 45, 0.18);
-        }
-
-        .executive-app-hero::after {
-          content: "";
-          position: absolute;
-          top: -95px;
-          right: -70px;
-          width: 225px;
-          height: 225px;
-          border: 32px solid rgba(255, 255, 255, 0.06);
-          border-radius: 999px;
-        }
-
-        .executive-app-kicker {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 9px;
-          color: #bfdbfe;
-          font-size: 12px;
-          font-weight: 800;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-        }
-
-        .executive-app-hero h1 {
-          margin: 0;
-          font-size: clamp(27px, 3vw, 38px);
-          line-height: 1.08;
-          letter-spacing: -0.03em;
-        }
-
-        .executive-app-hero p {
-          max-width: 720px;
-          margin: 12px 0 0;
-          color: #dbeafe;
-          font-size: 15px;
-          line-height: 1.65;
-        }
-
-        .executive-app-live-card {
-          position: relative;
-          z-index: 1;
-          min-width: 190px;
-          padding: 16px 18px;
-          border: 1px solid rgba(255, 255, 255, 0.18);
-          border-radius: 16px;
-          background: rgba(255, 255, 255, 0.08);
-          backdrop-filter: blur(8px);
-        }
-
-        .executive-app-live-card span {
-          display: block;
-          color: #bfdbfe;
-          font-size: 11px;
-          font-weight: 800;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-        }
-
-        .executive-app-live-card strong {
-          display: flex;
-          align-items: center;
-          gap: 9px;
-          margin-top: 7px;
-          font-size: 20px;
-        }
-
-        .executive-app-live-dot {
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-          background: #22c55e;
-          box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.16);
-        }
-
-        .executive-app-stats {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 15px;
-          margin-top: 20px;
-        }
-
-        .executive-app-stat {
-          position: relative;
-          overflow: hidden;
-          padding: 19px;
-          border: 1px solid #e2e8f0;
-          border-radius: 18px;
-          background: white;
-          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
-        }
-
-        .executive-app-stat::after {
-          content: "";
-          position: absolute;
-          top: -36px;
-          right: -36px;
-          width: 96px;
-          height: 96px;
-          border-radius: 50%;
-          background: #2563eb;
-          opacity: 0.08;
-        }
-
-        .executive-app-stat span {
-          display: block;
-          color: #64748b;
-          font-size: 11px;
-          font-weight: 800;
-          letter-spacing: 0.05em;
-          text-transform: uppercase;
-        }
-
-        .executive-app-stat strong {
-          display: block;
-          margin-top: 8px;
-          color: #0f172a;
-          font-size: 26px;
-          letter-spacing: -0.03em;
-        }
-
-        .executive-app-panel {
-          margin-top: 20px;
-          padding: 22px;
-          border: 1px solid #e2e8f0;
-          border-radius: 20px;
-          background: white;
-          box-shadow: 0 12px 35px rgba(15, 23, 42, 0.07);
-        }
-
-        .executive-app-panel-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 16px;
-          margin-bottom: 18px;
-        }
-
-        .executive-app-panel-head h2 {
-          margin: 0;
-          font-size: 19px;
-          letter-spacing: -0.02em;
-        }
-
-        .executive-app-panel-head p {
-          margin: 5px 0 0;
-          color: #64748b;
-          font-size: 13px;
-        }
-
-        .executive-app-count {
-          display: inline-flex;
-          align-items: center;
-          padding: 8px 11px;
-          border-radius: 999px;
-          color: #1d4ed8;
-          background: #eff6ff;
-          font-size: 12px;
-          font-weight: 800;
-          white-space: nowrap;
-        }
-
-        .executive-app-filter-grid {
-          display: grid;
-          grid-template-columns: minmax(260px, 1.5fr) minmax(180px, 0.6fr);
-          gap: 14px;
-        }
-
-        .executive-app-field {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .executive-app-field label {
-          color: #334155;
-          font-size: 12px;
-          font-weight: 800;
-        }
-
-        .executive-app-input,
-        .executive-app-select {
-          width: 100%;
-          height: 48px;
-          padding: 0 14px;
-          border: 1px solid #cbd5e1;
-          border-radius: 13px;
-          background: white;
-          color: #0f172a;
-          font-size: 14px;
-          outline: none;
-          transition: 0.2s ease;
-        }
-
-        .executive-app-input:focus,
-        .executive-app-select:focus {
-          border-color: #2563eb;
-          box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.11);
-        }
-
-        .executive-app-table-wrap {
-          width: 100%;
-          max-height: 590px;
-          overflow: auto;
-          border: 1px solid #e2e8f0;
-          border-radius: 15px;
-        }
-
-        .executive-app-table {
-          width: 100%;
-          min-width: 1140px;
-          border-collapse: separate;
-          border-spacing: 0;
-          background: white;
-          font-size: 13px;
-        }
-
-        .executive-app-table th {
-          position: sticky;
-          top: 0;
-          z-index: 2;
-          padding: 13px 14px;
-          border-bottom: 1px solid #e2e8f0;
-          background: #f8fafc;
-          color: #475569;
-          text-align: left;
-          font-size: 11px;
-          font-weight: 850;
-          letter-spacing: 0.045em;
-          text-transform: uppercase;
-          white-space: nowrap;
-        }
-
-        .executive-app-table td {
-          padding: 14px;
-          border-bottom: 1px solid #eef2f7;
-          color: #334155;
-          vertical-align: middle;
-        }
-
-        .executive-app-table tbody tr:hover td {
-          background: #fbfdff;
-        }
-
-        .executive-app-table tbody tr:last-child td {
-          border-bottom: 0;
-        }
-
-        .executive-profile {
-          display: flex;
-          align-items: center;
-          gap: 11px;
-          min-width: 190px;
-        }
-
-        .executive-profile-avatar {
-          width: 42px;
-          height: 42px;
-          flex: 0 0 auto;
-          display: grid;
-          place-items: center;
-          border-radius: 13px;
-          color: #1d4ed8;
-          background: #eff6ff;
-          font-size: 14px;
-          font-weight: 900;
-        }
-
-        .executive-profile strong {
-          display: block;
-          color: #0f172a;
-          font-size: 13px;
-        }
-
-        .executive-profile span {
-          display: block;
-          margin-top: 4px;
-          color: #64748b;
-          font-size: 12px;
-        }
-
-        .executive-code {
-          color: #0f172a;
-          font-weight: 800;
-        }
-
-        .executive-app-money {
-          color: #0f172a;
-          font-weight: 850;
-          white-space: nowrap;
-        }
-
-        .executive-status {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 10px;
-          border-radius: 999px;
-          font-size: 11px;
-          font-weight: 850;
-          white-space: nowrap;
-        }
-
-        .executive-status.online {
-          color: #047857;
-          background: #ecfdf5;
-        }
-
-        .executive-status.offline {
-          color: #64748b;
-          background: #f1f5f9;
-        }
-
-        .executive-status.on-visit {
-          color: #1d4ed8;
-          background: #eff6ff;
-        }
-
-        .executive-status.completed {
-          color: #6d28d9;
-          background: #f5f3ff;
-        }
-
-        .executive-battery {
-          min-width: 90px;
-        }
-
-        .executive-battery-line {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
-          margin-bottom: 6px;
-          color: #475569;
-          font-size: 11px;
-          font-weight: 800;
-        }
-
-        .executive-battery-track {
-          width: 100%;
-          height: 7px;
-          overflow: hidden;
-          border-radius: 999px;
-          background: #e2e8f0;
-        }
-
-        .executive-battery-fill {
-          height: 100%;
-          border-radius: inherit;
-          background: linear-gradient(
-            90deg,
-            #2563eb,
-            #10b981
-          );
-        }
-
-        .executive-actions {
-          display: flex;
-          gap: 7px;
-        }
-
-        .executive-action-btn {
-          min-height: 34px;
-          padding: 0 10px;
-          border: 1px solid #cbd5e1;
-          border-radius: 9px;
-          background: white;
-          color: #334155;
-          font-size: 11px;
-          font-weight: 800;
-          cursor: pointer;
-        }
-
-        .executive-action-btn.primary {
-          border-color: #bfdbfe;
-          background: #eff6ff;
-          color: #1d4ed8;
-        }
-
-        .executive-app-empty {
-          padding: 45px 20px;
-          color: #64748b;
-          text-align: center;
-        }
-
-        @media (max-width: 1050px) {
-          .executive-app-stats {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
-          .executive-app-filter-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        @media (max-width: 720px) {
-          .executive-app-page {
-            padding: 14px;
-          }
-
-          .executive-app-hero,
-          .executive-app-panel-head {
-            align-items: flex-start;
-            flex-direction: column;
-          }
-
-          .executive-app-live-card {
-            width: 100%;
-          }
-        }
-
-        @media (max-width: 480px) {
-          .executive-app-stats {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
-
-      <section className="executive-app-hero">
-        <div>
-          <div className="executive-app-kicker">
-            <span>◆</span>
-            Field Executive Command Center
-          </div>
-
-          <h1>Executive Mobile App</h1>
-
-          <p>
-            Field executives ki live activity, assigned cases,
-            visits, collection aur mobile status ko monitor karein.
-          </p>
-        </div>
-
-        <div className="executive-app-live-card">
-          <span>Live Executives</span>
-          <strong>
-            <span className="executive-app-live-dot" />
-            {onlineCount} Online
-          </strong>
-        </div>
-      </section>
-
-      <section className="executive-app-stats">
-        <article className="executive-app-stat">
-          <span>Total Executives</span>
-          <strong>{executives.length}</strong>
-        </article>
-
-        <article className="executive-app-stat">
-          <span>Total Assigned Cases</span>
-          <strong>{totalAssignedCases}</strong>
-        </article>
-
-        <article className="executive-app-stat">
-          <span>Visits Completed Today</span>
-          <strong>{completedToday}</strong>
-        </article>
-
-        <article className="executive-app-stat">
-          <span>Today Collection</span>
-          <strong>
-            ₹
-            {todayCollection.toLocaleString("en-IN")}
-          </strong>
-        </article>
-      </section>
-
-      <section className="executive-app-panel">
-        <div className="executive-app-panel-head">
+    <div style={{ minHeight: "100%", padding: 26, background: "#f5f7fb", color: "#0f172a" }}>
+      <section style={{ padding: 30, borderRadius: 22, color: "white", background: "linear-gradient(135deg,#07192d,#12497b)", boxShadow: "0 18px 45px rgba(7,25,45,.18)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
           <div>
-            <h2>Search & Filter</h2>
-            <p>
-              Name, executive code, mobile ya area se search
-              karein.
+            <div style={{ color: "#bfdbfe", fontSize: 12, fontWeight: 800, letterSpacing: ".12em" }}>WORKFORCE MANAGEMENT</div>
+            <h1 style={{ margin: "10px 0 0", fontSize: 36 }}>Executive Management</h1>
+            <p style={{ margin: "12px 0 0", color: "#dbeafe" }}>
+              Har executive ko ek fixed area dein. Bank Import exact area match se case assign karega.
             </p>
           </div>
-
-          <span className="executive-app-count">
-            {filteredExecutives.length} executives
-          </span>
-        </div>
-
-        <div className="executive-app-filter-grid">
-          <div className="executive-app-field">
-            <label htmlFor="executive-app-search">
-              Search Executive
-            </label>
-
-            <input
-              id="executive-app-search"
-              className="executive-app-input"
-              value={search}
-              onChange={(event) =>
-                setSearch(event.target.value)
-              }
-              placeholder="Search name, code, mobile, area..."
-            />
-          </div>
-
-          <div className="executive-app-field">
-            <label htmlFor="executive-app-status">
-              App Status
-            </label>
-
-            <select
-              id="executive-app-status"
-              className="executive-app-select"
-              value={status}
-              onChange={(event) =>
-                setStatus(
-                  event.target.value as
-                    | ExecutiveAppStatus
-                    | "All"
-                )
-              }
-            >
-              {statusOptions.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </div>
+          <button onClick={openAdd} style={{ height: 46, padding: "0 22px", border: 0, borderRadius: 12, background: "#2563eb", color: "white", fontWeight: 800, cursor: "pointer" }}>
+            + Add Executive
+          </button>
         </div>
       </section>
 
-      <section className="executive-app-panel">
-        <div className="executive-app-panel-head">
-          <div>
-            <h2>Executive Live Activity</h2>
-            <p>
-              Mobile application activity aur daily performance
-              overview.
-            </p>
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginTop: 20 }}>
+        {[
+          ["Total Executives", executives.length],
+          ["Active Executives", activeCount],
+          ["Assigned Cases", assignedCount],
+          ["Completed Cases", completedCount],
+        ].map(([label, value]) => (
+          <article key={String(label)} style={{ padding: 18, borderRadius: 16, background: "white", border: "1px solid #e2e8f0" }}>
+            <span style={{ color: "#64748b", fontSize: 12, fontWeight: 800 }}>{label}</span>
+            <strong style={{ display: "block", marginTop: 8, fontSize: 26 }}>{value}</strong>
+          </article>
+        ))}
+      </section>
+
+      <section style={{ marginTop: 20, padding: 22, borderRadius: 20, background: "white", border: "1px solid #e2e8f0" }}>
+        {message && (
+          <div style={{ marginBottom: 16, padding: 12, borderRadius: 10, background: "#fef2f2", color: "#b91c1c", fontWeight: 700 }}>
+            {message}
           </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(240px,1fr) minmax(180px,260px)", gap: 12, marginBottom: 18 }}>
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, code, mobile or area" style={{ height: 46, padding: "0 13px", border: "1px solid #cbd5e1", borderRadius: 11 }} />
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ExecutiveStatus | "All")} style={{ height: 46, padding: "0 13px", border: "1px solid #cbd5e1", borderRadius: 11, background: "white" }}>
+            <option value="All">All Status</option>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
         </div>
 
-        <div className="executive-app-table-wrap">
-          <table className="executive-app-table">
-            <thead>
-              <tr>
-                <th>Executive</th>
-                <th>Code</th>
-                <th>Area</th>
-                <th>Assigned Cases</th>
-                <th>Completed Today</th>
-                <th>Collection Today</th>
-                <th>Battery</th>
-                <th>Status</th>
-                <th>Last Seen</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {filteredExecutives.length > 0 ? (
-                filteredExecutives.map((executive) => (
+        {loading ? (
+          <div style={{ padding: 40, textAlign: "center", color: "#64748b" }}>Loading executives...</div>
+        ) : (
+          <div style={{ overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 14 }}>
+            <table style={{ width: "100%", minWidth: 900, borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#f8fafc" }}>
+                  {["Executive", "Code", "Mobile", "Area", "Assigned", "Completed", "Status", "Actions"].map((item) => (
+                    <th key={item} style={{ padding: 12, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{item}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredExecutives.map((executive) => (
                   <tr key={executive.id}>
-                    <td>
-                      <div className="executive-profile">
-                        <div className="executive-profile-avatar">
-                          {executive.name
-                            .split(" ")
-                            .slice(0, 2)
-                            .map((part) => part[0])
-                            .join("")
-                            .toUpperCase()}
-                        </div>
-
-                        <div>
-                          <strong>
-                            {executive.name}
-                          </strong>
-                          <span>
-                            {executive.mobile}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td>
-                      <span className="executive-code">
-                        {executive.code}
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7", fontWeight: 800 }}>{executive.name}</td>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{executive.code || "-"}</td>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{executive.mobile || "-"}</td>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{executive.area || "-"}</td>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{executive.assignedCases}</td>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{executive.completedCases}</td>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>
+                      <span style={{ padding: "5px 9px", borderRadius: 999, fontWeight: 800, background: executive.status === "Active" ? "#ecfdf5" : "#fef2f2", color: executive.status === "Active" ? "#047857" : "#b91c1c" }}>
+                        {executive.status}
                       </span>
                     </td>
-
-                    <td>{executive.area}</td>
-
-                    <td>{executive.assignedCases}</td>
-
-                    <td>
-                      {executive.completedToday}
-                    </td>
-
-                    <td>
-                      <span className="executive-app-money">
-                        ₹
-                        {executive.collectionToday.toLocaleString(
-                          "en-IN"
-                        )}
-                      </span>
-                    </td>
-
-                    <td>
-                      <div className="executive-battery">
-                        <div className="executive-battery-line">
-                          <span>Battery</span>
-                          <strong>
-                            {executive.battery}%
-                          </strong>
-                        </div>
-
-                        <div className="executive-battery-track">
-                          <div
-                            className="executive-battery-fill"
-                            style={{
-                              width: `${executive.battery}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </td>
-
-                    <td>
-                      <span
-                        className={`executive-status ${executive.status
-                          .toLowerCase()
-                          .replace(" ", "-")}`}
-                      >
-                        ● {executive.status}
-                      </span>
-                    </td>
-
-                    <td>{executive.lastSeen}</td>
-
-                    <td>
-                      <div className="executive-actions">
-                        <button className="executive-action-btn primary">
-                          Track
-                        </button>
-
-                        <button className="executive-action-btn">
-                          View
-                        </button>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => openEdit(executive)} style={{ padding: "7px 10px", border: "1px solid #bfdbfe", borderRadius: 8, background: "#eff6ff", color: "#1d4ed8", fontWeight: 800, cursor: "pointer" }}>Edit</button>
+                        <button onClick={() => void deleteExecutive(executive.id)} style={{ padding: "7px 10px", border: "1px solid #fecaca", borderRadius: 8, background: "#fef2f2", color: "#dc2626", fontWeight: 800, cursor: "pointer" }}>Delete</button>
                       </div>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={10}>
-                    <div className="executive-app-empty">
-                      No matching executive found.
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                ))}
+                {filteredExecutives.length === 0 && (
+                  <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: "#64748b" }}>No executives found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
+
+      {showModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "grid", placeItems: "center", padding: 20, background: "rgba(15,23,42,.55)" }}>
+          <div style={{ width: "100%", maxWidth: 560, padding: 24, borderRadius: 18, background: "white" }}>
+            <h2 style={{ marginTop: 0 }}>{editingId === null ? "Add Executive" : "Edit Executive"}</h2>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 14 }}>
+              <input value={formData.code} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="Executive Code" style={{ height: 44, padding: "0 12px", border: "1px solid #cbd5e1", borderRadius: 10 }} />
+              <input value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="Executive Name" style={{ height: 44, padding: "0 12px", border: "1px solid #cbd5e1", borderRadius: 10 }} />
+              <input value={formData.mobile} onChange={(event) => setFormData({ ...formData, mobile: event.target.value })} placeholder="Mobile" style={{ height: 44, padding: "0 12px", border: "1px solid #cbd5e1", borderRadius: 10 }} />
+              <input value={formData.area} onChange={(event) => setFormData({ ...formData, area: event.target.value })} placeholder="Fixed Area" style={{ height: 44, padding: "0 12px", border: "1px solid #cbd5e1", borderRadius: 10 }} />
+              <select value={formData.status} onChange={(event) => setFormData({ ...formData, status: event.target.value as ExecutiveStatus })} style={{ height: 44, padding: "0 12px", border: "1px solid #cbd5e1", borderRadius: 10, background: "white" }}>
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
+              <button onClick={() => setShowModal(false)} disabled={saving} style={{ height: 42, padding: "0 18px", border: 0, borderRadius: 10, background: "#e2e8f0", fontWeight: 800, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => void saveExecutive()} disabled={saving} style={{ height: 42, padding: "0 18px", border: 0, borderRadius: 10, background: "#2563eb", color: "white", fontWeight: 800, cursor: "pointer" }}>{saving ? "Saving..." : "Save"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export default ExecutiveAppPage;
-
+export default ExecutivesPage;

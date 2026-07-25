@@ -1,303 +1,204 @@
-import ExecutiveRanking from "./ExecutiveRanking";
-import RecoveryChart from "./RecoveryChart";
-import StatsCards from "./StatsCards";
+import { useEffect, useState } from "react";
+import { supabase } from "../supabaseClient";
+
+type RecentCase = {
+  id: number;
+  case_number: string | null;
+  customer_name: string | null;
+  area: string | null;
+  status: string | null;
+  assigned_executive_id: number | null;
+  created_at: string | null;
+};
+
+type DashboardState = {
+  totalExecutives: number;
+  activeExecutives: number;
+  totalCases: number;
+  pendingCases: number;
+  completedCases: number;
+  assignedCases: number;
+  unassignedCases: number;
+  recentCases: RecentCase[];
+};
+
+const initialState: DashboardState = {
+  totalExecutives: 0,
+  activeExecutives: 0,
+  totalCases: 0,
+  pendingCases: 0,
+  completedCases: 0,
+  assignedCases: 0,
+  unassignedCases: 0,
+  recentCases: [],
+};
 
 function DashboardPage() {
-  const today = new Date().toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
+  const [data, setData] = useState<DashboardState>(initialState);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void loadDashboard();
+  }, []);
+
+  const loadDashboard = async () => {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const [
+        totalExecutivesResult,
+        activeExecutivesResult,
+        totalCasesResult,
+        pendingCasesResult,
+        completedCasesResult,
+        paidCasesResult,
+        assignedCasesResult,
+        unassignedCasesResult,
+        recentResult,
+      ] = await Promise.all([
+        supabase.from("executives").select("*", { count: "exact", head: true }),
+        supabase.from("executives").select("*", { count: "exact", head: true }).eq("status", "Active"),
+        supabase.from("cases").select("*", { count: "exact", head: true }),
+        supabase.from("cases").select("*", { count: "exact", head: true }).eq("status", "Pending"),
+        supabase.from("cases").select("*", { count: "exact", head: true }).eq("status", "Completed"),
+        supabase.from("cases").select("*", { count: "exact", head: true }).eq("status", "Paid"),
+        supabase.from("cases").select("*", { count: "exact", head: true }).not("assigned_executive_id", "is", null),
+        supabase.from("cases").select("*", { count: "exact", head: true }).is("assigned_executive_id", null),
+        supabase
+          .from("cases")
+          .select("id,case_number,customer_name,area,status,assigned_executive_id,created_at")
+          .order("created_at", { ascending: false })
+          .limit(8),
+      ]);
+
+      const results = [
+        totalExecutivesResult,
+        activeExecutivesResult,
+        totalCasesResult,
+        pendingCasesResult,
+        completedCasesResult,
+        paidCasesResult,
+        assignedCasesResult,
+        unassignedCasesResult,
+        recentResult,
+      ];
+
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+
+      setData({
+        totalExecutives: totalExecutivesResult.count ?? 0,
+        activeExecutives: activeExecutivesResult.count ?? 0,
+        totalCases: totalCasesResult.count ?? 0,
+        pendingCases: pendingCasesResult.count ?? 0,
+        completedCases:
+          (completedCasesResult.count ?? 0) + (paidCasesResult.count ?? 0),
+        assignedCases: assignedCasesResult.count ?? 0,
+        unassignedCases: unassignedCasesResult.count ?? 0,
+        recentCases: (recentResult.data ?? []) as RecentCase[],
+      });
+    } catch (error) {
+      console.error("Dashboard load error:", error);
+      setMessage(
+        error instanceof Error
+          ? `Dashboard load error: ${error.message}`
+          : "Dashboard data load nahi hua."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const completionRate =
+    data.totalCases === 0
+      ? 0
+      : Math.round((data.completedCases / data.totalCases) * 100);
 
   return (
-    <div className="dashboard-page">
-      <style>{`
-        .dashboard-page {
-          min-height: 100%;
-          padding: 26px;
-          background:
-            radial-gradient(
-              circle at top right,
-              rgba(37, 99, 235, 0.09),
-              transparent 28%
-            ),
-            #f5f7fb;
-          color: #0f172a;
-          box-sizing: border-box;
-        }
-
-        .dashboard-page * {
-          box-sizing: border-box;
-        }
-
-        .dashboard-hero {
-          position: relative;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 24px;
-          overflow: hidden;
-          padding: 28px;
-          margin-bottom: 20px;
-          border-radius: 22px;
-          color: white;
-          background:
-            linear-gradient(
-              135deg,
-              rgba(255, 255, 255, 0.06),
-              transparent
-            ),
-            linear-gradient(
-              135deg,
-              #07192d 0%,
-              #0d2f55 55%,
-              #12497b 100%
-            );
-          box-shadow: 0 18px 45px rgba(7, 25, 45, 0.18);
-        }
-
-        .dashboard-hero::after {
-          content: "";
-          position: absolute;
-          top: -95px;
-          right: -70px;
-          width: 230px;
-          height: 230px;
-          border: 34px solid rgba(255, 255, 255, 0.06);
-          border-radius: 999px;
-        }
-
-        .dashboard-kicker {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 9px;
-          color: #bfdbfe;
-          font-size: 12px;
-          font-weight: 800;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-        }
-
-        .dashboard-hero h1 {
-          margin: 0;
-          font-size: clamp(27px, 3vw, 39px);
-          line-height: 1.08;
-          letter-spacing: -0.03em;
-        }
-
-        .dashboard-hero p {
-          max-width: 690px;
-          margin: 12px 0 0;
-          color: #dbeafe;
-          font-size: 15px;
-          line-height: 1.65;
-        }
-
-        .dashboard-date-card {
-          position: relative;
-          z-index: 1;
-          min-width: 190px;
-          padding: 16px 18px;
-          border: 1px solid rgba(255, 255, 255, 0.18);
-          border-radius: 16px;
-          background: rgba(255, 255, 255, 0.08);
-          backdrop-filter: blur(8px);
-        }
-
-        .dashboard-date-card span {
-          display: block;
-          color: #bfdbfe;
-          font-size: 11px;
-          font-weight: 800;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-        }
-
-        .dashboard-date-card strong {
-          display: block;
-          margin-top: 7px;
-          font-size: 16px;
-        }
-
-        .dashboard-section {
-          margin-top: 20px;
-        }
-
-        .dashboard-section-heading {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 15px;
-          margin-bottom: 14px;
-        }
-
-        .dashboard-section-heading h2 {
-          margin: 0;
-          color: #0f172a;
-          font-size: 19px;
-          letter-spacing: -0.02em;
-        }
-
-        .dashboard-section-heading p {
-          margin: 5px 0 0;
-          color: #64748b;
-          font-size: 13px;
-        }
-
-        .dashboard-live-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 7px;
-          padding: 8px 11px;
-          border-radius: 999px;
-          background: #ecfdf5;
-          color: #047857;
-          font-size: 12px;
-          font-weight: 800;
-          white-space: nowrap;
-        }
-
-        .dashboard-live-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #10b981;
-          box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.13);
-        }
-
-        .dashboard-content-grid {
-          display: grid;
-          grid-template-columns: minmax(0, 1.55fr) minmax(310px, 0.8fr);
-          gap: 20px;
-          align-items: stretch;
-        }
-
-        .dashboard-widget-card {
-          min-width: 0;
-          overflow: hidden;
-          padding: 22px;
-          border: 1px solid #e2e8f0;
-          border-radius: 20px;
-          background: white;
-          box-shadow: 0 12px 35px rgba(15, 23, 42, 0.07);
-        }
-
-        .dashboard-widget-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 14px;
-          margin-bottom: 17px;
-        }
-
-        .dashboard-widget-head h3 {
-          margin: 0;
-          color: #0f172a;
-          font-size: 17px;
-          letter-spacing: -0.02em;
-        }
-
-        .dashboard-widget-head span {
-          color: #64748b;
-          font-size: 12px;
-          font-weight: 700;
-        }
-
-        @media (max-width: 1050px) {
-          .dashboard-content-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        @media (max-width: 760px) {
-          .dashboard-page {
-            padding: 14px;
-          }
-
-          .dashboard-hero {
-            align-items: flex-start;
-            flex-direction: column;
-          }
-
-          .dashboard-date-card {
-            width: 100%;
-          }
-
-          .dashboard-section-heading {
-            align-items: flex-start;
-            flex-direction: column;
-          }
-
-          .dashboard-widget-card {
-            padding: 16px;
-          }
-        }
-      `}</style>
-
-      <section className="dashboard-hero">
-        <div>
-          <div className="dashboard-kicker">
-            <span>◆</span>
-            Recovery Command Center
-          </div>
-
-          <h1>Welcome Back, Admin</h1>
-
-          <p>
-            Cases, recovery performance, executive activity aur
-            collection progress ko ek hi dashboard se monitor karein.
-          </p>
-        </div>
-
-        <div className="dashboard-date-card">
-          <span>Today</span>
-          <strong>{today}</strong>
-        </div>
-      </section>
-
-      <section className="dashboard-section">
-        <div className="dashboard-section-heading">
+    <div style={{ minHeight: "100%", padding: 26, background: "#f5f7fb", color: "#0f172a" }}>
+      <section style={{ padding: 30, borderRadius: 22, color: "white", background: "linear-gradient(135deg,#07192d,#12497b)", boxShadow: "0 18px 45px rgba(7,25,45,.18)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
           <div>
-            <h2>Business Overview</h2>
-            <p>
-              Current recovery operations ki live summary.
+            <div style={{ color: "#bfdbfe", fontSize: 12, fontWeight: 800, letterSpacing: ".12em" }}>RECOVERY MANAGEMENT DASHBOARD</div>
+            <h1 style={{ margin: "10px 0 0", fontSize: 36 }}>Dashboard Overview</h1>
+            <p style={{ margin: "12px 0 0", color: "#dbeafe" }}>
+              Real Supabase data se executives, cases aur allocation status ka overview.
             </p>
           </div>
-
-          <span className="dashboard-live-badge">
-            <span className="dashboard-live-dot" />
-            Live Dashboard
-          </span>
+          <button onClick={() => void loadDashboard()} disabled={loading} style={{ height: 44, padding: "0 18px", border: "1px solid rgba(255,255,255,.25)", borderRadius: 11, background: "rgba(255,255,255,.1)", color: "white", fontWeight: 800, cursor: "pointer" }}>
+            {loading ? "Loading..." : "Refresh"}
+          </button>
         </div>
-
-        <StatsCards />
       </section>
 
-      <section className="dashboard-section">
-        <div className="dashboard-content-grid">
-          <article className="dashboard-widget-card">
-            <div className="dashboard-widget-head">
-              <h3>Recovery Performance</h3>
-              <span>Collection overview</span>
-            </div>
-
-            <RecoveryChart />
-          </article>
-
-          <article className="dashboard-widget-card">
-            <div className="dashboard-widget-head">
-              <h3>Executive Ranking</h3>
-              <span>Top performers</span>
-            </div>
-
-            <ExecutiveRanking />
-          </article>
+      {message && (
+        <div style={{ marginTop: 16, padding: 13, borderRadius: 10, background: "#fef2f2", color: "#b91c1c", fontWeight: 700 }}>
+          {message}
         </div>
+      )}
+
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginTop: 20 }}>
+        {[
+          ["Total Executives", data.totalExecutives],
+          ["Active Executives", data.activeExecutives],
+          ["Total Cases", data.totalCases],
+          ["Pending Cases", data.pendingCases],
+          ["Completed / Paid", data.completedCases],
+          ["Completion Rate", `${completionRate}%`],
+          ["Assigned Cases", data.assignedCases],
+          ["Unassigned Cases", data.unassignedCases],
+        ].map(([label, value]) => (
+          <article key={String(label)} style={{ padding: 18, borderRadius: 16, background: "white", border: "1px solid #e2e8f0", boxShadow: "0 8px 24px rgba(15,23,42,.05)" }}>
+            <span style={{ color: "#64748b", fontSize: 12, fontWeight: 800 }}>{label}</span>
+            <strong style={{ display: "block", marginTop: 8, fontSize: 26 }}>{value}</strong>
+          </article>
+        ))}
+      </section>
+
+      <section style={{ marginTop: 20, padding: 22, borderRadius: 20, background: "white", border: "1px solid #e2e8f0" }}>
+        <div style={{ marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 20 }}>Recent Cases</h2>
+          <p style={{ margin: "6px 0 0", color: "#64748b", fontSize: 13 }}>Latest 8 cases from the cases table.</p>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: 40, textAlign: "center", color: "#64748b" }}>Loading dashboard...</div>
+        ) : (
+          <div style={{ overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 14 }}>
+            <table style={{ width: "100%", minWidth: 760, borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#f8fafc" }}>
+                  {["Case Number", "Customer", "Area", "Status", "Allocation"].map((item) => (
+                    <th key={item} style={{ padding: 12, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{item}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.recentCases.map((item) => (
+                  <tr key={item.id}>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7", fontFamily: "monospace", fontWeight: 800 }}>{item.case_number || "-"}</td>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{item.customer_name || "-"}</td>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{item.area || "-"}</td>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{item.status || "-"}</td>
+                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>
+                      <span style={{ padding: "5px 9px", borderRadius: 999, fontWeight: 800, background: item.assigned_executive_id ? "#ecfdf5" : "#fef2f2", color: item.assigned_executive_id ? "#047857" : "#b91c1c" }}>
+                        {item.assigned_executive_id ? "Assigned" : "Unassigned"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {data.recentCases.length === 0 && (
+                  <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: "#64748b" }}>No cases found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );
 }
 
 export default DashboardPage;
-
