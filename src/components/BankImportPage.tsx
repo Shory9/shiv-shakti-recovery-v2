@@ -6,7 +6,7 @@ type DbRow = Record<string, unknown>;
 type ExcelRow = Record<string, unknown>;
 
 type ExecutiveOption = {
-  id: number;
+  id: number | string;
   name: string;
   area: string;
 };
@@ -25,7 +25,7 @@ type PreviewCase = {
   city: string;
   area: string;
   pincode: string;
-  assigned_executive_id: number | null;
+  assigned_executive_id: number | string | null;
   assigned_executive_name: string;
   status: string;
   bank_id: number | string;
@@ -118,13 +118,40 @@ function BankImportPage() {
     if (error) throw new Error(`Executives load error: ${error.message}`);
 
     return ((data ?? []) as DbRow[])
-      .filter((row) => normalized(row.status) === "active")
+      .filter((row) => {
+        const status = normalized(
+          row.status ?? row.executive_status ?? row.active_status
+        );
+
+        return (
+          status === "active" ||
+          status === "online" ||
+          row.is_active === true
+        );
+      })
       .map((row) => ({
-        id: Number(row.id),
-        name: text(row.name ?? row.executive_name ?? row.full_name),
-        area: text(row.area ?? row.assigned_area ?? row.market),
+        id: (row.id as number | string) ?? "",
+        name: text(
+          row.name ??
+            row.executive_name ??
+            row.full_name ??
+            row.agent_name
+        ),
+        area: text(
+          row.area ??
+            row.assigned_area ??
+            row.assigned_area_name ??
+            row.market ??
+            row.city ??
+            row.location
+        ),
       }))
-      .filter((row) => Number.isFinite(row.id) && row.name !== "" && row.area !== "");
+      .filter(
+        (row) =>
+          String(row.id).trim() !== "" &&
+          row.name !== "" &&
+          row.area !== ""
+      );
   };
 
   const areaFromText = (value: unknown): string => {
