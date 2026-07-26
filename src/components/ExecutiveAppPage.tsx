@@ -3,9 +3,13 @@ import { supabase } from "../supabaseClient";
 
 type ExecutiveRow = {
   id: number;
-  code: string | null;
-  name: string | null;
-  mobile: string | null;
+  executive_code?: string | null;
+  agent_code?: string | null;
+  code?: string | null;
+  full_name?: string | null;
+  name?: string | null;
+  phone?: string | null;
+  mobile?: string | null;
   area: string | null;
   status: string | null;
   is_online?: boolean | null;
@@ -15,9 +19,11 @@ type ExecutiveRow = {
 
 type CaseRow = {
   id: number;
-  assigned_executive_id: number | null;
+  assigned_executive: string | null;
+  assigned_executive_id?: number | null;
   status: string | null;
   customer_name?: string | null;
+  phone?: string | null;
   mobile?: string | null;
   area?: string | null;
   loan_amount?: number | null;
@@ -115,7 +121,7 @@ function ExecutiveAppPage() {
     while (true) {
       const { data, error } = await supabase
         .from("cases")
-        .select("id,assigned_executive_id,status,customer_name,mobile,area,loan_amount")
+        .select("id,assigned_executive,assigned_executive_id,status,customer_name,phone,mobile,area,loan_amount")
         .range(from, from + PAGE_SIZE - 1);
 
       if (error) throw error;
@@ -138,35 +144,58 @@ function ExecutiveAppPage() {
 
     try {
       const [executiveResult, cases] = await Promise.all([
-        supabase.from("executives").select("*").order("created_at", { ascending: false }),
+        supabase.from("executives").select("*").order("id", { ascending: false }),
         fetchAllCases(),
       ]);
 
       if (executiveResult.error) throw executiveResult.error;
 
       const rows = (executiveResult.data ?? []) as ExecutiveRow[];
-      const casesByExecutive = new Map<number, CaseRow[]>();
+      
+      // Dual Mapping: Support matching by Code OR ID
+      const casesByExecCode = new Map<string, CaseRow[]>();
+      const casesByExecId = new Map<number, CaseRow[]>();
 
       for (const item of cases) {
-        const executiveId = Number(item.assigned_executive_id);
-        if (!Number.isFinite(executiveId)) continue;
+        // Match by Executive Code (Primary String Code, e.g. "SS593")
+        if (item.assigned_executive) {
+          const codeKey = item.assigned_executive.trim().toLowerCase();
+          const current = casesByExecCode.get(codeKey) ?? [];
+          current.push(item);
+          casesByExecCode.set(codeKey, current);
+        }
 
-        const current = casesByExecutive.get(executiveId) ?? [];
-        current.push(item);
-        casesByExecutive.set(executiveId, current);
+        // Match by Numeric Executive ID
+        const executiveId = Number(item.assigned_executive_id);
+        if (Number.isFinite(executiveId)) {
+          const current = casesByExecId.get(executiveId) ?? [];
+          current.push(item);
+          casesByExecId.set(executiveId, current);
+        }
       }
 
       const mapped: ExecutiveCard[] = rows.map((row) => {
-        const assigned = casesByExecutive.get(Number(row.id)) ?? [];
+        const execCode = (row.executive_code || row.agent_code || row.code || `SS${row.id}`).trim();
+        const codeKey = execCode.toLowerCase();
+
+        // Combine cases mapped via Executive Code OR Executive ID
+        const assignedByCode = casesByExecCode.get(codeKey) ?? [];
+        const assignedById = casesByExecId.get(Number(row.id)) ?? [];
+        
+        // Merge & remove duplicates
+        const caseMap = new Map<number, CaseRow>();
+        [...assignedByCode, ...assignedById].forEach((c) => caseMap.set(c.id, c));
+        const assigned = Array.from(caseMap.values());
+
         const completed = assigned.filter((item) => isCompletedStatus(item.status)).length;
         const visited = assigned.filter((item) => isVisitedStatus(item.status)).length;
         const pending = Math.max(0, assigned.length - completed);
 
         return {
           id: Number(row.id),
-          code: row.code?.trim() || `EXE-${String(row.id).padStart(3, "0")}`,
-          name: row.name?.trim() || "Unnamed Executive",
-          mobile: row.mobile?.trim() || "Not available",
+          code: execCode,
+          name: row.full_name?.trim() || row.name?.trim() || "Unnamed Executive",
+          mobile: row.phone?.trim() || row.mobile?.trim() || "Not available",
           area: row.area?.trim() || "Not assigned",
           status: row.status?.trim() || "Active",
           appStatus: row.is_online ? "Online" : "Offline",
@@ -278,7 +307,7 @@ function ExecutiveAppPage() {
           <div>
             <div className="executive-kicker">Field Executive Command Center</div>
             <h1>Executive Mobile App</h1>
-            <p>Executive availability, assigned work aur case completion ko Supabase se live monitor karein.</p>
+            <p>Shiv Shakti Recovery: Real-time availability, case allocations aur performance overview.</p>
           </div>
 
           <button className="executive-refresh" type="button" disabled={refreshing || loading} onClick={() => void loadData(true)}>
@@ -361,7 +390,7 @@ function ExecutiveAppPage() {
                 {selectedExecutive.cases.slice(0, 30).map((item) => (
                   <div className="executive-case-row" key={item.id}>
                     <div className="executive-case-row-top"><strong>{item.customer_name?.trim() || `Case #${item.id}`}</strong><span>{item.status || "Pending"}</span></div>
-                    <p>{item.mobile || "No mobile"} · {item.area || selectedExecutive.area}<br />Loan: {money(item.loan_amount)}</p>
+                    <p>{item.phone || item.mobile || "No mobile"} · {item.area || selectedExecutive.area}<br />Loan: {money(item.loan_amount)}</p>
                   </div>
                 ))}
                 {selectedExecutive.cases.length === 0 ? <div className="executive-empty">Is executive ko abhi koi case assigned nahi hai.</div> : null}
