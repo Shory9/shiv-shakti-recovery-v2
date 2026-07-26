@@ -79,7 +79,7 @@ function BankImportPage(): React.ReactElement {
     loadInitialData();
   }, []);
 
-  // Clean String for Flexible Matching (Strips MP, Madhya Pradesh, Road, Chouraha, etc.)
+  // Clean String for Flexible Matching
   const cleanAreaString = (str: string): string => {
     return str
       .toLowerCase()
@@ -101,20 +101,48 @@ function BankImportPage(): React.ReactElement {
     return "";
   };
 
+  // Smart & Precise Executive Area Matching
   const matchExecutiveByArea = (areaStr: string, execsList: Executive[]) => {
-    const cleanTargetArea = cleanAreaString(areaStr);
-    if (!cleanTargetArea) return null;
+    if (!areaStr || execsList.length === 0) return null;
 
-    return execsList.find((exec) => {
+    const cleanTargetArea = cleanAreaString(areaStr);
+    const targetRaw = areaStr.toLowerCase().trim();
+
+    // Priority 1: Exact Substring or Exact Match
+    const exactMatch = execsList.find((exec) => {
       if (!exec.area) return false;
       const cleanExecArea = cleanAreaString(exec.area);
-      if (!cleanExecArea) return false;
+      const execRaw = exec.area.toLowerCase().trim();
 
       return (
-        cleanTargetArea.includes(cleanExecArea) ||
-        cleanExecArea.includes(cleanTargetArea)
+        cleanTargetArea === cleanExecArea ||
+        targetRaw.includes(execRaw) ||
+        cleanTargetArea.includes(cleanExecArea)
       );
     });
+
+    if (exactMatch) return exactMatch;
+
+    // Priority 2: Longest Specific Name Match (CRPF Neemuch > Neemuch)
+    let bestMatch: Executive | null = null;
+    let maxMatchLength = 0;
+
+    execsList.forEach((exec) => {
+      if (!exec.area) return;
+      const cleanExecArea = cleanAreaString(exec.area);
+
+      if (
+        cleanTargetArea.includes(cleanExecArea) ||
+        cleanExecArea.includes(cleanTargetArea)
+      ) {
+        if (cleanExecArea.length > maxMatchLength) {
+          maxMatchLength = cleanExecArea.length;
+          bestMatch = exec;
+        }
+      }
+    });
+
+    return bestMatch;
   };
 
   function handleFileUpload(e: ChangeEvent<HTMLInputElement>) {
@@ -153,7 +181,7 @@ function BankImportPage(): React.ReactElement {
 
           const isExisting = dbCaseNumbers.has(caseNo.toLowerCase());
 
-          // Flexible Area Executive Auto Matching
+          // Match Executive using Smart String Matching
           const matchingExec = matchExecutiveByArea(area, executives);
 
           const execCode = matchingExec ? matchingExec.executive_code : "Unassigned";
@@ -257,7 +285,7 @@ function BankImportPage(): React.ReactElement {
 
   return (
     <div style={{ padding: "24px", backgroundColor: "#f8fafc", minHeight: "100vh", fontFamily: "sans-serif" }}>
-      {/* Page Title */}
+      {/* Page Header */}
       <div style={{ marginBottom: "20px" }}>
         <h2 style={{ fontSize: "22px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
           🏦 Bank Excel Case Import
@@ -267,7 +295,7 @@ function BankImportPage(): React.ReactElement {
         </p>
       </div>
 
-      {/* Control Box */}
+      {/* Upload Controls */}
       <div style={{ backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px 20px", marginBottom: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)", display: "flex", flexWrap: "wrap", gap: "20px", alignItems: "center" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           <label style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Select Target Bank</label>
@@ -294,7 +322,7 @@ function BankImportPage(): React.ReactElement {
         </div>
       </div>
 
-      {/* Stats Overview Box */}
+      {/* Summary Card */}
       {excelRecords.length > 0 && (
         <div style={{ backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px", marginBottom: "24px", boxShadow: "0 2px 4px rgba(0,0,0,0.04)" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "16px", marginBottom: "16px" }}>
