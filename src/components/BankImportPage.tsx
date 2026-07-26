@@ -1,499 +1,366 @@
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../supabaseClient";
+import React, { useState, useEffect, type ChangeEvent } from "react";
 import * as XLSX from "xlsx";
+import { supabase } from "../supabaseClient";
 
-type DbRow = Record<string, unknown>;
-type ExcelRow = Record<string, unknown>;
-
-type ExecutiveOption = {
-  id: number | string;
-  name: string;
+type Executive = {
+  id: number;
+  executive_code: string;
+  full_name: string;
   area: string;
 };
 
-type BankOption = {
-  id: number | string;
-  name: string;
-};
-
-type PreviewCase = {
-  case_number: string;
-  customer_name: string;
+type CaseRecord = {
+  caseNo: string;
+  customer: string;
   mobile: string;
-  alternate_mobile: string;
-  address: string;
-  city: string;
   area: string;
-  pincode: string;
-  assigned_executive_id: number | string | null;
-  assigned_executive_name: string;
-  status: string;
-  bank_id: number | string;
+  address: string;
+  assignedExecCode: string;
+  assignedExecName: string;
+  isExisting: boolean;
 };
 
-const text = (value: unknown): string => String(value ?? "").trim();
-
-const normalized = (value: unknown): string =>
-  text(value).toLowerCase().replace(/\s+/g, " ");
-
-const accountNumber = (value: unknown): string =>
-  text(value).replace(/\.0$/, "");
-
-const firstValue = (row: ExcelRow, keys: string[]): unknown => {
-  for (const key of keys) {
-    const value = row[key];
-    if (value !== undefined && value !== null && text(value) !== "") {
-      return value;
-    }
-  }
-  return "";
+type MarketSummary = {
+  area: string;
+  currentExcelCount: number;
+  newCasesCount: number;
+  alreadyAssignedCount: number;
+  activeExecs: string;
+  importResult: string;
 };
 
-const AREA_RULES: Array<{ area: string; keywords: string[] }> = [
-  { area: "Petlawad", keywords: ["petlawad", "petlawada"] },
-  { area: "Thandla", keywords: ["thandla", "thandala"] },
-  { area: "Manawar", keywords: ["manawar"] },
-  { area: "Dhar", keywords: ["dhar"] },
-  { area: "Jaora", keywords: ["jaora"] },
-  { area: "Manasa", keywords: ["manasa"] },
-  { area: "Sailana", keywords: ["sailana"] },
-  { area: "Mandsaur", keywords: ["mandsaur", "mandsour"] },
-  { area: "Jawad", keywords: ["jawad"] },
-  { area: "Neemuch", keywords: ["neemuch"] },
-  { area: "Ratlam", keywords: ["ratlam"] },
-];
+function BankImportPage(): React.ReactElement {
+  const [selectedBank, setSelectedBank] = useState<string>("Bank of Baroda (BOB)");
+  const [fileName, setFileName] = useState<string>("");
+  const [executives, setExecutives] = useState<Executive[]>([]);
+  const [dbCaseNumbers, setDbCaseNumbers] = useState<Set<string>>(new Set());
 
-const SOL_AREA_MAP: Record<string, string> = {
-  "1528": "Ratlam",
-  "8790": "Mandsaur",
-  "2494": "Mandsaur",
-  "3896": "Jaora",
-  "4134": "Manasa",
-  "2653": "Jawad",
-  "4449": "Sailana",
-  "6478": "Neemuch",
-};
+  const [excelRecords, setExcelRecords] = useState<CaseRecord[]>([]);
+  const [marketSummaries, setMarketSummaries] = useState<MarketSummary[]>([]);
+  const [missingAddressCount, setMissingAddressCount] = useState<number>(0);
+  const [isImporting, setIsImporting] = useState<boolean>(false);
 
-function BankImportPage() {
-  const [banks, setBanks] = useState<BankOption[]>([]);
-  const [selectedBankId, setSelectedBankId] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<PreviewCase[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [message, setMessage] = useState("");
-
+  // Load Active Executives & Existing Cases
   useEffect(() => {
-    void loadBanks();
+    async function loadInitialData() {
+      try {
+        const { data: execData } = await supabase
+          .from("executives")
+          .select("id, executive_code, full_name, area")
+          .eq("status", "active");
+
+        if (execData) {
+          setExecutives(
+            execData.map((e: any) => ({
+              id: e.id,
+              executive_code: e.executive_code || `SS00${e.id}`,
+              full_name: e.full_name || e.name || "",
+              area: e.area || "",
+            }))
+          );
+        }
+
+        const { data: caseData } = await supabase
+          .from("cases")
+          .select("case_no");
+
+        if (caseData) {
+          setDbCaseNumbers(new Set(caseData.map((c: any) => String(c.case_no).trim().toLowerCase())));
+        }
+      } catch (err) {
+        console.error("Error loading initial data:", err);
+      }
+    }
+    loadInitialData();
   }, []);
 
-  const loadBanks = async () => {
-    const { data, error } = await supabase.from("banks").select("*");
-
-    if (error) {
-      setMessage(`Banks load error: ${error.message}`);
-      return;
-    }
-
-    const options = ((data ?? []) as DbRow[]).map<BankOption>((row) => ({
-      id: (row.id as number | string) ?? "",
-      name: text(row.bank_name ?? row.name ?? row.code ?? row.id),
-    }));
-
-    setBanks(options);
-
-    const bob = options.find((bank) => {
-      const name = normalized(bank.name);
-      return name.includes("bank of baroda") || name.includes("baroda") || name === "bob";
-    });
-
-    if (bob) setSelectedBankId(String(bob.id));
-    else if (options.length === 1) setSelectedBankId(String(options[0].id));
-  };
-
-  const loadActiveExecutives = async (): Promise<ExecutiveOption[]> => {
-    const { data, error } = await supabase.from("executives").select("*");
-
-    if (error) throw new Error(`Executives load error: ${error.message}`);
-
-    return ((data ?? []) as DbRow[])
-      .filter((row) => {
-        const status = normalized(
-          row.status ?? row.executive_status ?? row.active_status
-        );
-
-        return (
-          status === "active" ||
-          status === "online" ||
-          row.is_active === true
-        );
-      })
-      .map((row) => ({
-        id: (row.id as number | string) ?? "",
-        name: text(
-          row.name ??
-            row.executive_name ??
-            row.full_name ??
-            row.agent_name
-        ),
-        area: text(
-          row.area ??
-            row.assigned_area ??
-            row.assigned_area_name ??
-            row.market ??
-            row.city ??
-            row.location
-        ),
-      }))
-      .filter(
-        (row) =>
-          String(row.id).trim() !== "" &&
-          row.name !== "" &&
-          row.area !== ""
-      );
-  };
-
-  const areaFromText = (value: unknown): string => {
-    const source = normalized(value);
-
-    for (const rule of AREA_RULES) {
-      if (rule.keywords.some((keyword) => source.includes(keyword))) {
-        return rule.area;
+  // Safe field extractor for flexible excel formats
+  const findValue = (rowObj: Record<string, any>, possibleKeys: string[]): string => {
+    const keys = Object.keys(rowObj);
+    for (const key of keys) {
+      const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+      for (const pk of possibleKeys) {
+        if (cleanKey.includes(pk)) {
+          return String(rowObj[key] || "").trim();
+        }
       }
     }
-
-    return "Unassigned";
+    return "";
   };
 
-  const resolveArea = (
-    explicitArea: unknown,
-    city: unknown,
-    address: unknown,
-    branch: unknown,
-    solId: unknown
-  ): string => {
-    for (const value of [explicitArea, city, address, branch]) {
-      const area = areaFromText(value);
-      if (area !== "Unassigned") return area;
-    }
+  function handleFileUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    const sol = text(solId).replace(/^0+/, "");
-    if (SOL_AREA_MAP[sol]) return SOL_AREA_MAP[sol];
+    setFileName(file.name);
 
-    // SOL 575 contains both Petlawad and Thandla, therefore address is mandatory.
-    // SOL 4467 contains both Manawar and Dhar, therefore address is mandatory.
-    if (sol === "575" || sol === "4467") return "Unassigned";
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        
+        // Read Excel as JSON Objects (Uses header names)
+        const rawData: Record<string, any>[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
-    return "Unassigned";
-  };
+        if (rawData.length === 0) {
+          alert("Excel file khali lag rahi hai.");
+          return;
+        }
 
-  const parseExcel = async (selectedFile: File) => {
-    if (!selectedBankId) {
-      setMessage("Pehle bank select karein.");
+        const parsedCases: CaseRecord[] = [];
+        const marketMap: Record<string, { current: number; newCases: number; existing: number }> = {};
+        let missingAddr = 0;
+
+        rawData.forEach((row, index) => {
+          // Flexible key searching to match various Bank formats
+          const caseNo = findValue(row, ["case", "account", "loan", "caseno", "accno"]) || `CASE-${index + 1}`;
+          const customer = findValue(row, ["customer", "name", "borrower", "party"]) || "Unknown";
+          const mobile = findValue(row, ["mobile", "phone", "contact", "cell"]) || "";
+          const area = findValue(row, ["area", "market", "city", "location", "branch"]) || "Unassigned";
+          const address = findValue(row, ["address", "add", "location", "residence"]) || "";
+
+          if (!address) missingAddr++;
+
+          const isExisting = dbCaseNumbers.has(caseNo.toLowerCase());
+
+          // Match Executive by Area
+          const cleanArea = area.toLowerCase().trim();
+          const matchingExec = executives.find((exec) => {
+            if (!exec.area) return false;
+            const cleanExecArea = exec.area.toLowerCase().trim();
+            return cleanArea.includes(cleanExecArea) || cleanExecArea.includes(cleanArea);
+          });
+
+          const execCode = matchingExec ? matchingExec.executive_code : "Unassigned";
+          const execName = matchingExec ? matchingExec.full_name : "Unassigned";
+
+          parsedCases.push({
+            caseNo,
+            customer,
+            mobile,
+            area,
+            address,
+            assignedExecCode: execCode,
+            assignedExecName: execName,
+            isExisting,
+          });
+
+          // Market Summary Tracking
+          if (!marketMap[area]) {
+            marketMap[area] = { current: 0, newCases: 0, existing: 0 };
+          }
+          marketMap[area].current++;
+          if (isExisting) {
+            marketMap[area].existing++;
+          } else {
+            marketMap[area].newCases++;
+          }
+        });
+
+        // Build Summaries
+        const summaries: MarketSummary[] = Object.keys(marketMap).map((marketName) => {
+          const stats = marketMap[marketName];
+          const cleanMarket = marketName.toLowerCase().trim();
+
+          const matchingExecs = executives.filter((exec) => {
+            if (!exec.area) return false;
+            const cleanExecArea = exec.area.toLowerCase().trim();
+            return cleanMarket.includes(cleanExecArea) || cleanExecArea.includes(cleanMarket);
+          });
+
+          const execNamesStr = matchingExecs.length > 0
+            ? matchingExecs.map(e => `${e.executive_code} ${e.full_name}`).join(", ")
+            : "No Active Executive";
+
+          return {
+            area: marketName,
+            currentExcelCount: stats.current,
+            newCasesCount: stats.newCases,
+            alreadyAssignedCount: stats.existing,
+            activeExecs: execNamesStr,
+            importResult: stats.newCases > 0 ? `${stats.newCases} New Cases` : "No new case",
+          };
+        });
+
+        setExcelRecords(parsedCases);
+        setMarketSummaries(summaries);
+        setMissingAddressCount(missingAddr);
+      } catch (err) {
+        alert("Excel File Read Error: Make sure file format is correct.");
+        console.error(err);
+      }
+    };
+
+    reader.readAsBinaryString(file);
+  }
+
+  const totalUniqueExcelCases = excelRecords.length;
+  const alreadyExistingCount = excelRecords.filter(r => r.isExisting).length;
+  const newCasesCount = totalUniqueExcelCases - alreadyExistingCount;
+
+  async function handleImportNewCases() {
+    if (newCasesCount === 0) {
+      alert("Koi naya case nahi hai import karne ke liye!");
       return;
     }
 
-    setLoading(true);
-    setMessage("");
-    setPreview([]);
+    setIsImporting(true);
 
     try {
-      const activeExecutives = await loadActiveExecutives();
-      const buffer = await selectedFile.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+      const newRecordsToInsert = excelRecords
+        .filter(r => !r.isExisting)
+        .map(r => ({
+          case_no: r.caseNo,
+          customer_name: r.customer,
+          phone: r.mobile,
+          area: r.area,
+          address: r.address, // Added Address insertion fix
+          assigned_executive: r.assignedExecCode !== "Unassigned" ? r.assignedExecCode : null,
+          bank_name: selectedBank,
+          status: "Pending"
+        }));
 
-      const sheetName = workbook.SheetNames[0];
-      if (!sheetName) throw new Error("Workbook me koi sheet nahi mili.");
-
-      const rows = XLSX.utils.sheet_to_json<ExcelRow>(workbook.Sheets[sheetName], {
-        defval: "",
-        raw: false,
-      });
-
-      const parsed: PreviewCase[] = [];
-
-      for (const row of rows) {
-        const number = accountNumber(
-          firstValue(row, ["A/C No", "A/C NO", "Account No", "ACCOUNT NO"])
-        );
-
-        const customer = text(
-          firstValue(row, ["A/C Name", "A/C NAME", "Customer Name", "CUSTOMER NAME"])
-        );
-
-        if (!number || !customer) continue;
-
-        const address = text(firstValue(row, ["ADDRESS", "Address"]));
-        const city = text(firstValue(row, ["CITY", "City", "TEHSIL", "Tehsil"]));
-        const branch = firstValue(row, ["Branch", "BRANCH"]);
-        const solId = firstValue(row, ["SOL ID", "Sol ID", "SOLID"]);
-
-        const area = resolveArea(
-          firstValue(row, ["AREA", "Area", "MARKET", "Market"]),
-          city,
-          address,
-          branch,
-          solId
-        );
-
-        const executive =
-          area === "Unassigned"
-            ? null
-            : activeExecutives.find(
-                (item) => normalized(item.area) === normalized(area)
-              ) ?? null;
-
-        parsed.push({
-          case_number: number,
-          customer_name: customer,
-          mobile: text(firstValue(row, ["MOBILE NO", "Mobile No", "MOBILE", "Mobile"])),
-          alternate_mobile: "",
-          address,
-          city,
-          area,
-          pincode: text(firstValue(row, ["PINCODE", "Pincode", "PIN CODE", "Pin Code"])),
-          assigned_executive_id: executive?.id ?? null,
-          assigned_executive_name: executive?.name ?? "Unassigned",
-          status: "Pending",
-          bank_id: selectedBankId,
-        });
-      }
-
-      setPreview(parsed);
-
-      const unassigned = parsed.filter(
-        (item) => item.area === "Unassigned" || item.assigned_executive_id === null
-      ).length;
-
-      if (parsed.length === 0) {
-        setMessage("Excel me A/C No aur A/C Name wale valid records nahi mile.");
-      } else if (unassigned > 0) {
-        setMessage(
-          `${parsed.length} records read hue. ${unassigned} records ka exact area/executive assign nahi hua, isliye import disabled hai.`
-        );
-      } else {
-        setMessage(`${parsed.length} records read hue aur sabhi cases assign ho gaye.`);
-      }
-    } catch (error) {
-      console.error("Bank Excel error:", error);
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : `Excel error: ${String(error)}`
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchExistingCaseNumbers = async (): Promise<Set<string>> => {
-    const existing = new Set<string>();
-    const pageSize = 1000;
-    let from = 0;
-
-    while (true) {
-      const { data, error } = await supabase
-        .from("cases")
-        .select("case_number")
-        .range(from, from + pageSize - 1);
+      const { error } = await supabase.from("cases").insert(newRecordsToInsert);
 
       if (error) throw error;
 
-      const rows = (data ?? []) as Array<{ case_number?: string | null }>;
-
-      rows.forEach((row) => {
-        const value = accountNumber(row.case_number);
-        if (value) existing.add(value);
-      });
-
-      if (rows.length < pageSize) break;
-      from += pageSize;
-    }
-
-    return existing;
-  };
-
-  const importCases = async () => {
-    const unassigned = preview.filter(
-      (item) => item.area === "Unassigned" || item.assigned_executive_id === null
-    ).length;
-
-    if (preview.length === 0 || unassigned > 0) {
-      setMessage("Import se pehle sabhi records ka executive assigned hona chahiye.");
-      return;
-    }
-
-    setImporting(true);
-    setProgress(0);
-    setMessage("");
-
-    try {
-      const existing = await fetchExistingCaseNumbers();
-      const unique = new Map<string, PreviewCase>();
-
-      preview.forEach((item) => {
-        const key = accountNumber(item.case_number);
-        if (key && !unique.has(key)) unique.set(key, item);
-      });
-
-      const newCases = Array.from(unique.values()).filter(
-        (item) => !existing.has(accountNumber(item.case_number))
-      );
-
-      if (newCases.length === 0) {
-        setMessage("Sabhi records pehle se database me maujood hain.");
-        return;
-      }
-
-      const rows = newCases.map((item) => ({
-        case_number: item.case_number,
-        bank_id: item.bank_id,
-        customer_name: item.customer_name,
-        mobile: item.mobile || null,
-        alternate_mobile: item.alternate_mobile || null,
-        address: item.address || null,
-        city: item.city || null,
-        area: item.area,
-        pincode: item.pincode || null,
-        assigned_executive_id: item.assigned_executive_id,
-        status: item.status,
-        allocation_date: new Date().toISOString().slice(0, 10),
-        remarks: "Imported from Bank Excel",
-      }));
-
-      const batchSize = 500;
-      let imported = 0;
-
-      for (let index = 0; index < rows.length; index += batchSize) {
-        const batch = rows.slice(index, index + batchSize);
-        const { error } = await supabase.from("cases").insert(batch);
-
-        if (error) throw error;
-
-        imported += batch.length;
-        setProgress(Math.round((imported / rows.length) * 100));
-      }
-
-      setMessage(`${imported} new cases successfully import hue.`);
-      setPreview([]);
-      setFile(null);
-
-      const input = document.getElementById("bank-excel-input") as HTMLInputElement | null;
-      if (input) input.value = "";
-    } catch (error) {
-      console.error("Import error:", error);
-      setMessage(error instanceof Error ? `Import error: ${error.message}` : "Import fail hua.");
+      alert(`Akyos CRM: Successfully imported ${newCasesCount} new cases!`);
+      
+      // Update local existing state
+      setDbCaseNumbers(prev => new Set([...prev, ...newRecordsToInsert.map(r => r.case_no.toLowerCase())]));
+      setExcelRecords([]);
+      setMarketSummaries([]);
+      setFileName("");
+    } catch (err: any) {
+      alert("Import Error: " + err.message);
     } finally {
-      setImporting(false);
+      setIsImporting(false);
     }
-  };
-
-  const unassignedCount = useMemo(
-    () =>
-      preview.filter(
-        (item) => item.area === "Unassigned" || item.assigned_executive_id === null
-      ).length,
-    [preview]
-  );
+  }
 
   return (
-    <div style={{ minHeight: "100%", padding: 26, background: "#f5f7fb", color: "#0f172a" }}>
-      <section style={{ padding: 30, borderRadius: 22, color: "white", background: "linear-gradient(135deg,#07192d,#12497b)" }}>
-        <h1 style={{ margin: 0, fontSize: 36 }}>Bank Import</h1>
-        <p style={{ margin: "12px 0 0", color: "#dbeafe" }}>
-          Bank Excel se cases import karke exact area ke Active Executive ko assign karein.
-        </p>
-      </section>
+    <div className="p-6 bg-slate-50 min-h-screen font-sans">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">🏦 Bank Excel Case Import</h2>
+          <p className="text-xs text-slate-500">Powered by Akyos Development</p>
+        </div>
+      </div>
 
-      <section style={{ marginTop: 20, padding: 22, borderRadius: 20, background: "white", border: "1px solid #e2e8f0" }}>
-        <label style={{ display: "block", marginBottom: 8, fontWeight: 800 }}>Select Bank</label>
-        <select
-          value={selectedBankId}
-          onChange={(event) => {
-            setSelectedBankId(event.target.value);
-            setPreview([]);
-            setMessage("");
-          }}
-          style={{ width: "100%", maxWidth: 430, height: 46, padding: "0 12px", border: "1px solid #cbd5e1", borderRadius: 10, background: "white" }}
-        >
-          <option value="">Select bank</option>
-          {banks.map((bank) => (
-            <option key={String(bank.id)} value={String(bank.id)}>
-              {bank.name}
-            </option>
-          ))}
-        </select>
+      {/* Upload Controls */}
+      <div className="flex flex-wrap gap-4 mb-6 items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold text-slate-600">Select Target Bank</label>
+          <select
+            value={selectedBank}
+            onChange={(e) => setSelectedBank(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+          >
+            <option value="Bank of Baroda (BOB)">Bank of Baroda (BOB)</option>
+            <option value="State Bank of India (SBI)">State Bank of India (SBI)</option>
+            <option value="HDFC Bank">HDFC Bank</option>
+            <option value="ICICI Bank">ICICI Bank</option>
+            <option value="Kotak Mahindra Bank">Kotak Mahindra Bank</option>
+          </select>
+        </div>
 
-        <label style={{ display: "block", marginTop: 22, marginBottom: 8, fontWeight: 800 }}>Select Bank Excel</label>
-        <input
-          id="bank-excel-input"
-          type="file"
-          accept=".xlsx,.xls"
-          disabled={!selectedBankId || loading || importing}
-          onChange={(event) => {
-            const selectedFile = event.target.files?.[0];
-            if (!selectedFile) return;
-            setFile(selectedFile);
-            void parseExcel(selectedFile);
-          }}
-        />
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold text-slate-600">Upload Excel File (.xlsx, .xls)</label>
+          <input
+            type="file"
+            accept=".xlsx, .xls"
+            onChange={handleFileUpload}
+            className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+          />
+        </div>
+      </div>
 
-        {file && <p>Selected: <strong>{file.name}</strong></p>}
-        {loading && <p><strong>Excel read ho rahi hai...</strong></p>}
-
-        {message && (
-          <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: "#f8fafc", fontWeight: 700 }}>
-            {message}
+      {/* Header File Stats Card */}
+      {excelRecords.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 text-sm">
+            <div>
+              <span className="text-slate-400 block text-xs">Bank:</span>
+              <span className="font-semibold text-slate-800">{selectedBank}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-xs">File:</span>
+              <span className="font-semibold text-slate-800">{fileName}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-xs">Total Records:</span>
+              <span className="font-semibold text-slate-800">{totalUniqueExcelCases}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-xs">Already In System:</span>
+              <span className="font-semibold text-amber-600">{alreadyExistingCount}</span>
+            </div>
           </div>
-        )}
 
-        {preview.length > 0 && (
-          <>
-            <div style={{ display: "flex", gap: 14, marginTop: 16, flexWrap: "wrap" }}>
-              <strong>Total: {preview.length}</strong>
-              <strong style={{ color: "#047857" }}>Assigned: {preview.length - unassignedCount}</strong>
-              <strong style={{ color: "#dc2626" }}>Unassigned: {unassignedCount}</strong>
+          <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+            <div>
+              <span className="text-lg font-bold text-blue-600">{newCasesCount} New Cases</span>
+              {missingAddressCount > 0 && (
+                <span className="ml-3 text-xs text-rose-500 font-medium">
+                  ({missingAddressCount} cases missing full address)
+                </span>
+              )}
             </div>
 
             <button
-              onClick={() => void importCases()}
-              disabled={unassignedCount > 0 || importing}
-              style={{ marginTop: 16, padding: "12px 22px", border: 0, borderRadius: 10, background: unassignedCount > 0 ? "#94a3b8" : "#2563eb", color: "white", fontWeight: 800, cursor: unassignedCount > 0 ? "not-allowed" : "pointer" }}
+              onClick={handleImportNewCases}
+              disabled={isImporting || newCasesCount === 0}
+              className={`px-6 py-2.5 rounded-lg text-white font-bold text-sm shadow-md transition-all ${
+                newCasesCount > 0 && !isImporting
+                  ? "bg-blue-600 hover:bg-blue-700"
+                  : "bg-slate-300 cursor-not-allowed"
+              }`}
             >
-              Import {preview.length} Cases
+              {isImporting ? "Processing Import..." : `Import ${newCasesCount} New Cases`}
             </button>
-          </>
-        )}
+          </div>
+        </div>
+      )}
 
-        {importing && <p style={{ marginTop: 14, fontWeight: 800 }}>Importing... {progress}%</p>}
-      </section>
+      {/* Market-wise Assignment Preview Table */}
+      {marketSummaries.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <h3 className="text-sm font-bold text-slate-800 mb-4">
+            Market-wise Assignment Preview
+          </h3>
 
-      {preview.length > 0 && (
-        <section style={{ marginTop: 20, padding: 22, borderRadius: 20, background: "white", border: "1px solid #e2e8f0", overflow: "auto" }}>
-          <h2 style={{ marginTop: 0 }}>Preview — First 50 Records</h2>
-          <table style={{ width: "100%", minWidth: 940, borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: "#f8fafc" }}>
-                {["Case No.", "Customer", "Mobile", "Area", "Executive", "Status"].map((heading) => (
-                  <th key={heading} style={{ padding: 11, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{heading}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {preview.slice(0, 50).map((item, index) => (
-                <tr key={`${item.case_number}-${index}`}>
-                  <td style={{ padding: 11, borderBottom: "1px solid #eef2f7", fontFamily: "monospace", fontWeight: 800 }}>{item.case_number}</td>
-                  <td style={{ padding: 11, borderBottom: "1px solid #eef2f7" }}>{item.customer_name}</td>
-                  <td style={{ padding: 11, borderBottom: "1px solid #eef2f7" }}>{item.mobile || "-"}</td>
-                  <td style={{ padding: 11, borderBottom: "1px solid #eef2f7" }}>{item.area}</td>
-                  <td style={{ padding: 11, borderBottom: "1px solid #eef2f7" }}>{item.assigned_executive_name}</td>
-                  <td style={{ padding: 11, borderBottom: "1px solid #eef2f7" }}>{item.status}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500">
+                  <th className="p-3">Market / Area</th>
+                  <th className="p-3">Current Excel Count</th>
+                  <th className="p-3">New Cases</th>
+                  <th className="p-3">Already Assigned</th>
+                  <th className="p-3">Mapped Active Executive</th>
+                  <th className="p-3">Import Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {marketSummaries.map((summary, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50">
+                    <td className="p-3 font-semibold text-slate-800">{summary.area}</td>
+                    <td className="p-3 text-slate-600">{summary.currentExcelCount}</td>
+                    <td className="p-3 font-bold text-blue-600">{summary.newCasesCount}</td>
+                    <td className="p-3 text-amber-600">{summary.alreadyAssignedCount}</td>
+                    <td className={`p-3 font-medium ${summary.activeExecs === "No Active Executive" ? "text-rose-500" : "text-emerald-600"}`}>
+                      {summary.activeExecs}
+                    </td>
+                    <td className="p-3 text-slate-500">{summary.importResult}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );

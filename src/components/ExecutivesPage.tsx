@@ -1,361 +1,388 @@
-import { useEffect, useMemo, useState } from "react";
+import React, {
+  type ChangeEvent,
+  useEffect,
+  useState,
+} from "react";
+
 import { supabase } from "../supabaseClient";
 
-type ExecutiveStatus = "Active" | "Inactive";
-
-type ExecutiveRow = {
+type Executive = {
   id: number;
-  code: string | null;
-  name: string | null;
-  mobile: string | null;
-  area: string | null;
-  status: string | null;
-  created_at?: string | null;
-};
-
-type ExecutiveView = {
-  id: number;
-  code: string;
+  agent_code?: string | null;
   name: string;
-  mobile: string;
+  phone: string;
   area: string;
-  status: ExecutiveStatus;
-  assignedCases: number;
-  completedCases: number;
+  cases: number;
+  status: string;
 };
 
-type FormData = {
-  code: string;
-  name: string;
-  mobile: string;
-  area: string;
-  status: ExecutiveStatus;
-};
+const WORKING_AREAS = [
+  "CRPF Neemuch",
+  "Pustak Bajar Neemuch",
+  "Neemuch",
+  "Manasa",
+  "Mandsaur",
+  "MEN DB Mandsaur",
+  "Jaora",
+  "Bilpank",
+  "Khachrod",
+  "Sailana",
+  "Station Road Ratlam",
+  "Alkapuri Ratlam",
+  "College Road Ratlam",
+  "Chandni Chowk Ratlam",
+  "Bamaniya",
+  "Petlawad",
+  "Dhar",
+  "Manavar",
+  "Tonki",
+];
 
-const emptyForm: FormData = {
-  code: "",
-  name: "",
-  mobile: "",
-  area: "",
-  status: "Active",
-};
+function ExecutiveManagement(): React.ReactElement {
+  const [executives, setExecutives] = useState<Executive[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [errorMsg, setErrorMsg] = useState<string>("");
 
-function ExecutivesPage() {
-  const [executives, setExecutives] = useState<ExecutiveView[]>([]);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ExecutiveStatus | "All">("All");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [formData, setFormData] = useState<FormData>(emptyForm);
-  const [message, setMessage] = useState("");
+  const [name, setName] = useState<string>("");
+  const [phone, setPhone] = useState<string>("");
+  const [area, setArea] = useState<string>("");
+  const [vehicle, setVehicle] = useState<string>("");
+  const [isAdding, setIsAdding] = useState<boolean>(false);
+  const [searchTerm, setSearchTerm] = useState<string>("");
+
+  function formatAgentCode(id: number, code?: string | null): string {
+    if (code && code.trim().length > 0) return code;
+    return "SS" + String(id).padStart(3, "0");
+  }
+
+  function cleanPhone(value: string): string {
+    return value.replace(/\D/g, "");
+  }
+
+  async function loadExecutives(): Promise<void> {
+    setLoading(true);
+    setErrorMsg("");
+
+    try {
+      const { data, error } = await supabase
+        .from("executives")
+        .select("*")
+        .order("id", { ascending: false });
+
+      if (error) throw error;
+
+      const formatted = (data || []).map((row: any) => {
+        const execName =
+          row.full_name || row.name || row.executive_name || "Field Executive";
+        const execCode =
+          row.executive_code || row.agent_code || `SS00${row.id}`;
+        const execPhone = row.phone || row.mobile || "-";
+
+        return {
+          id: Number(row.id),
+          agent_code: execCode,
+          name: String(execName),
+          phone: String(execPhone),
+          area: String(row.area || "Unassigned"),
+          cases: Number(row.cases || 0),
+          status: String(row.status || "active").toLowerCase(),
+        };
+      });
+
+      setExecutives(formatted);
+    } catch (err: any) {
+      console.error("Load Executives Error:", err);
+      setErrorMsg(err.message || "Executives load nahi ho paaye.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
     void loadExecutives();
   }, []);
 
-  const fetchAllCases = async () => {
-    const allRows: Array<{ assigned_executive_id: number | null; status: string | null }> = [];
-    const pageSize = 1000;
-    let from = 0;
+  async function addExecutive(): Promise<void> {
+    if (isAdding) return;
 
-    while (true) {
+    const cleanName = name.trim();
+    const normalizedPhone = cleanPhone(phone);
+    const cleanArea = area.trim();
+
+    if (!cleanName || !normalizedPhone || !cleanArea) {
+      alert("Name, phone aur working area required hai.");
+      return;
+    }
+
+    if (normalizedPhone.length < 10) {
+      alert("Valid 10-digit mobile number enter karo.");
+      return;
+    }
+
+    setIsAdding(true);
+
+    try {
+      // 1. Unique code generate karo
+      const generatedCode = "SS" + Math.floor(100 + Math.random() * 900);
+
+      // 2. Both columns sync insert
       const { data, error } = await supabase
-        .from("cases")
-        .select("assigned_executive_id,status")
-        .range(from, from + pageSize - 1);
+        .from("executives")
+        .insert({
+          full_name: cleanName,
+          name: cleanName,
+          phone: normalizedPhone,
+          mobile: normalizedPhone,
+          area: cleanArea,
+          executive_code: generatedCode,
+          agent_code: generatedCode,
+          cases: 0,
+          status: "active",
+        })
+        .select()
+        .single();
 
       if (error) throw error;
 
-      const rows = (data ?? []) as Array<{
-        assigned_executive_id: number | null;
-        status: string | null;
-      }>;
+      setName("");
+      setPhone("");
+      setArea("");
+      setVehicle("");
 
-      allRows.push(...rows);
-      if (rows.length < pageSize) break;
-      from += pageSize;
-    }
-
-    return allRows;
-  };
-
-  const loadExecutives = async () => {
-    setLoading(true);
-    setMessage("");
-
-    try {
-      const [executiveResult, cases] = await Promise.all([
-        supabase
-          .from("executives")
-          .select("id,code,name,mobile,area,status,created_at")
-          .order("created_at", { ascending: false }),
-        fetchAllCases(),
-      ]);
-
-      if (executiveResult.error) throw executiveResult.error;
-
-      const rows = (executiveResult.data ?? []) as ExecutiveRow[];
-
-      const mapped = rows.map<ExecutiveView>((row) => {
-        const assigned = cases.filter(
-          (item) => Number(item.assigned_executive_id) === Number(row.id)
-        );
-
-        const completed = assigned.filter((item) => {
-          const value = String(item.status ?? "").toLowerCase();
-          return value === "completed" || value === "paid";
-        }).length;
-
-        return {
-          id: row.id,
-          code: row.code ?? "",
-          name: row.name ?? "",
-          mobile: row.mobile ?? "",
-          area: row.area ?? "",
-          status: row.status === "Inactive" ? "Inactive" : "Active",
-          assignedCases: assigned.length,
-          completedCases: completed,
-        };
-      });
-
-      setExecutives(mapped);
-    } catch (error) {
-      console.error("Executives load error:", error);
-      setMessage(
-        error instanceof Error
-          ? `Executives load error: ${error.message}`
-          : "Executives load nahi hue."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const filteredExecutives = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    return executives.filter((executive) => {
-      const matchesSearch =
-        !query ||
-        executive.name.toLowerCase().includes(query) ||
-        executive.code.toLowerCase().includes(query) ||
-        executive.mobile.toLowerCase().includes(query) ||
-        executive.area.toLowerCase().includes(query);
-
-      const matchesStatus =
-        statusFilter === "All" || executive.status === statusFilter;
-
-      return matchesSearch && matchesStatus;
-    });
-  }, [executives, search, statusFilter]);
-
-  const activeCount = executives.filter((item) => item.status === "Active").length;
-  const assignedCount = executives.reduce((sum, item) => sum + item.assignedCases, 0);
-  const completedCount = executives.reduce((sum, item) => sum + item.completedCases, 0);
-
-  const openAdd = () => {
-    setEditingId(null);
-    setFormData(emptyForm);
-    setShowModal(true);
-    setMessage("");
-  };
-
-  const openEdit = (executive: ExecutiveView) => {
-    setEditingId(executive.id);
-    setFormData({
-      code: executive.code,
-      name: executive.name,
-      mobile: executive.mobile,
-      area: executive.area,
-      status: executive.status,
-    });
-    setShowModal(true);
-    setMessage("");
-  };
-
-  const saveExecutive = async () => {
-    if (!formData.name.trim() || !formData.area.trim()) {
-      setMessage("Executive Name aur Area required hai.");
-      return;
-    }
-
-    setSaving(true);
-    setMessage("");
-
-    const payload = {
-      code: formData.code.trim(),
-      name: formData.name.trim(),
-      mobile: formData.mobile.trim(),
-      area: formData.area.trim(),
-      status: formData.status,
-    };
-
-    try {
-      if (editingId === null) {
-        const { error } = await supabase.from("executives").insert(payload);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from("executives")
-          .update(payload)
-          .eq("id", editingId);
-
-        if (error) throw error;
-      }
-
-      setShowModal(false);
-      setFormData(emptyForm);
-      setEditingId(null);
       await loadExecutives();
-    } catch (error) {
-      console.error("Executive save error:", error);
-      setMessage(
-        error instanceof Error
-          ? `Save error: ${error.message}`
-          : "Executive save nahi hua."
+
+      alert(
+        `Executive added successfully!\nAgent Code: ${
+          data?.executive_code || generatedCode
+        }\nName: ${cleanName}`
       );
+    } catch (error: any) {
+      alert("Executive Add Error: " + (error.message || "Unknown error"));
     } finally {
-      setSaving(false);
+      setIsAdding(false);
     }
-  };
+  }
 
-  const deleteExecutive = async (id: number) => {
-    const assignedCases = executives.find((item) => item.id === id)?.assignedCases ?? 0;
+  async function toggleStatus(item: Executive): Promise<void> {
+    const isCurrentlyActive = item.status === "active";
+    const nextStatus = isCurrentlyActive ? "inactive" : "active";
 
-    if (assignedCases > 0) {
-      setMessage(
-        "Is executive ke historical cases assigned hain. Delete ke badle status Inactive karein."
+    try {
+      const { error } = await supabase
+        .from("executives")
+        .update({ status: nextStatus })
+        .eq("id", item.id);
+
+      if (error) throw error;
+
+      setExecutives((old) =>
+        old.map((exec) =>
+          exec.id === item.id ? { ...exec, status: nextStatus } : exec
+        )
       );
-      return;
+    } catch (err: any) {
+      alert("Status update error: " + err.message);
     }
+  }
 
-    if (!window.confirm("Kya aap is executive ko delete karna chahte hain?")) return;
+  async function deleteExecutive(item: Executive): Promise<void> {
+    const confirmed = window.confirm(
+      `Warning: ${formatAgentCode(item.id, item.agent_code)} - ${item.name} ko permanently delete karna hai?`
+    );
 
-    const { error } = await supabase.from("executives").delete().eq("id", id);
+    if (!confirmed) return;
 
-    if (error) {
-      setMessage(`Delete error: ${error.message}`);
-      return;
+    try {
+      const { error } = await supabase
+        .from("executives")
+        .delete()
+        .eq("id", item.id);
+
+      if (error) throw error;
+
+      await loadExecutives();
+      alert("Executive deleted successfully.");
+    } catch (err: any) {
+      alert("Delete error: " + err.message);
     }
+  }
 
-    await loadExecutives();
-  };
+  const filteredExecutives = executives.filter((item: Executive) => {
+    const q = searchTerm.toLowerCase();
+    return (
+      item.name.toLowerCase().includes(q) ||
+      item.phone.includes(q) ||
+      item.area.toLowerCase().includes(q) ||
+      formatAgentCode(item.id, item.agent_code).toLowerCase().includes(q)
+    );
+  });
 
   return (
-    <div style={{ minHeight: "100%", padding: 26, background: "#f5f7fb", color: "#0f172a" }}>
-      <section style={{ padding: 30, borderRadius: 22, color: "white", background: "linear-gradient(135deg,#07192d,#12497b)", boxShadow: "0 18px 45px rgba(7,25,45,.18)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
-          <div>
-            <div style={{ color: "#bfdbfe", fontSize: 12, fontWeight: 800, letterSpacing: ".12em" }}>WORKFORCE MANAGEMENT</div>
-            <h1 style={{ margin: "10px 0 0", fontSize: 36 }}>Executive Management</h1>
-            <p style={{ margin: "12px 0 0", color: "#dbeafe" }}>
-              Har executive ko ek fixed area dein. Bank Import exact area match se case assign karega.
-            </p>
-          </div>
-          <button onClick={openAdd} style={{ height: 46, padding: "0 22px", border: 0, borderRadius: 12, background: "#2563eb", color: "white", fontWeight: 800, cursor: "pointer" }}>
-            + Add Executive
-          </button>
-        </div>
-      </section>
+    <div className="module-card" style={{ padding: "24px", backgroundColor: "#f8fafc", minHeight: "100vh" }}>
+      <h2 style={{ fontSize: "20px", fontWeight: "800", color: "#0f172a", marginBottom: "4px" }}>
+        👨‍💼 Field Executive Management
+      </h2>
+      <p style={{ color: "#64748b", fontSize: "13px", margin: 0 }}>
+        Powered by Akyos CRM V2 Architecture
+      </p>
 
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginTop: 20 }}>
-        {[
-          ["Total Executives", executives.length],
-          ["Active Executives", activeCount],
-          ["Assigned Cases", assignedCount],
-          ["Completed Cases", completedCount],
-        ].map(([label, value]) => (
-          <article key={String(label)} style={{ padding: 18, borderRadius: 16, background: "white", border: "1px solid #e2e8f0" }}>
-            <span style={{ color: "#64748b", fontSize: 12, fontWeight: 800 }}>{label}</span>
-            <strong style={{ display: "block", marginTop: 8, fontSize: 26 }}>{value}</strong>
-          </article>
-        ))}
-      </section>
-
-      <section style={{ marginTop: 20, padding: 22, borderRadius: 20, background: "white", border: "1px solid #e2e8f0" }}>
-        {message && (
-          <div style={{ marginBottom: 16, padding: 12, borderRadius: 10, background: "#fef2f2", color: "#b91c1c", fontWeight: 700 }}>
-            {message}
-          </div>
-        )}
-
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(240px,1fr) minmax(180px,260px)", gap: 12, marginBottom: 18 }}>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, code, mobile or area" style={{ height: 46, padding: "0 13px", border: "1px solid #cbd5e1", borderRadius: 11 }} />
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ExecutiveStatus | "All")} style={{ height: 46, padding: "0 13px", border: "1px solid #cbd5e1", borderRadius: 11, background: "white" }}>
-            <option value="All">All Status</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-        </div>
-
-        {loading ? (
-          <div style={{ padding: 40, textAlign: "center", color: "#64748b" }}>Loading executives...</div>
-        ) : (
-          <div style={{ overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 14 }}>
-            <table style={{ width: "100%", minWidth: 900, borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: "#f8fafc" }}>
-                  {["Executive", "Code", "Mobile", "Area", "Assigned", "Completed", "Status", "Actions"].map((item) => (
-                    <th key={item} style={{ padding: 12, textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>{item}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredExecutives.map((executive) => (
-                  <tr key={executive.id}>
-                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7", fontWeight: 800 }}>{executive.name}</td>
-                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{executive.code || "-"}</td>
-                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{executive.mobile || "-"}</td>
-                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{executive.area || "-"}</td>
-                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{executive.assignedCases}</td>
-                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{executive.completedCases}</td>
-                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>
-                      <span style={{ padding: "5px 9px", borderRadius: 999, fontWeight: 800, background: executive.status === "Active" ? "#ecfdf5" : "#fef2f2", color: executive.status === "Active" ? "#047857" : "#b91c1c" }}>
-                        {executive.status}
-                      </span>
-                    </td>
-                    <td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => openEdit(executive)} style={{ padding: "7px 10px", border: "1px solid #bfdbfe", borderRadius: 8, background: "#eff6ff", color: "#1d4ed8", fontWeight: 800, cursor: "pointer" }}>Edit</button>
-                        <button onClick={() => void deleteExecutive(executive.id)} style={{ padding: "7px 10px", border: "1px solid #fecaca", borderRadius: 8, background: "#fef2f2", color: "#dc2626", fontWeight: 800, cursor: "pointer" }}>Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {filteredExecutives.length === 0 && (
-                  <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: "#64748b" }}>No executives found.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {showModal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "grid", placeItems: "center", padding: 20, background: "rgba(15,23,42,.55)" }}>
-          <div style={{ width: "100%", maxWidth: 560, padding: 24, borderRadius: 18, background: "white" }}>
-            <h2 style={{ marginTop: 0 }}>{editingId === null ? "Add Executive" : "Edit Executive"}</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 14 }}>
-              <input value={formData.code} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="Executive Code" style={{ height: 44, padding: "0 12px", border: "1px solid #cbd5e1", borderRadius: 10 }} />
-              <input value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="Executive Name" style={{ height: 44, padding: "0 12px", border: "1px solid #cbd5e1", borderRadius: 10 }} />
-              <input value={formData.mobile} onChange={(event) => setFormData({ ...formData, mobile: event.target.value })} placeholder="Mobile" style={{ height: 44, padding: "0 12px", border: "1px solid #cbd5e1", borderRadius: 10 }} />
-              <input value={formData.area} onChange={(event) => setFormData({ ...formData, area: event.target.value })} placeholder="Fixed Area" style={{ height: 44, padding: "0 12px", border: "1px solid #cbd5e1", borderRadius: 10 }} />
-              <select value={formData.status} onChange={(event) => setFormData({ ...formData, status: event.target.value as ExecutiveStatus })} style={{ height: 44, padding: "0 12px", border: "1px solid #cbd5e1", borderRadius: 10, background: "white" }}>
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </select>
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
-              <button onClick={() => setShowModal(false)} disabled={saving} style={{ height: 42, padding: "0 18px", border: 0, borderRadius: 10, background: "#e2e8f0", fontWeight: 800, cursor: "pointer" }}>Cancel</button>
-              <button onClick={() => void saveExecutive()} disabled={saving} style={{ height: 42, padding: "0 18px", border: 0, borderRadius: 10, background: "#2563eb", color: "white", fontWeight: 800, cursor: "pointer" }}>{saving ? "Saving..." : "Save"}</button>
-            </div>
-          </div>
+      {errorMsg && (
+        <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "#fef2f2", color: "#b91c1c", borderRadius: "6px", fontSize: "13px", fontWeight: "600" }}>
+          🚨 {errorMsg}
         </div>
       )}
+
+      <hr style={{ margin: "16px 0", borderColor: "#e2e8f0" }} />
+
+      <h3 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "12px" }}>+ Add New Field Executive</h3>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", maxWidth: "850px" }}>
+        <input
+          placeholder="Executive Full Name"
+          value={name}
+          onChange={(event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)}
+          style={{ padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
+        />
+
+        <input
+          placeholder="Mobile Number"
+          value={phone}
+          onChange={(event: ChangeEvent<HTMLInputElement>) => setPhone(event.target.value)}
+          style={{ padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
+        />
+
+        <select
+          value={area}
+          onChange={(event: ChangeEvent<HTMLSelectElement>) => setArea(event.target.value)}
+          style={{ padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", backgroundColor: "#fff", fontSize: "13px" }}
+        >
+          <option value="">Select Working Area</option>
+          {WORKING_AREAS.map((workingArea) => (
+            <option key={workingArea} value={workingArea}>
+              {workingArea}
+            </option>
+          ))}
+        </select>
+
+        <input
+          placeholder="Vehicle Number / Info"
+          value={vehicle}
+          onChange={(event: ChangeEvent<HTMLInputElement>) => setVehicle(event.target.value)}
+          style={{ padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
+        />
+      </div>
+
+      <button
+        onClick={addExecutive}
+        disabled={isAdding}
+        style={{
+          marginTop: "16px",
+          padding: "9px 20px",
+          backgroundColor: "#2563eb",
+          color: "#fff",
+          border: "none",
+          borderRadius: "6px",
+          cursor: "pointer",
+          fontWeight: "700",
+          fontSize: "13px",
+          opacity: isAdding ? 0.7 : 1
+        }}
+      >
+        {isAdding ? "Adding Executive..." : "+ Save Executive"}
+      </button>
+
+      <hr style={{ margin: "24px 0", borderColor: "#e2e8f0" }} />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <h3 style={{ fontSize: "15px", fontWeight: "700", margin: 0 }}>
+          Executive List ({filteredExecutives.length})
+        </h3>
+        <input
+          placeholder="Search by Code, Name, Area..."
+          value={searchTerm}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+          style={{ padding: "6px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", width: "260px", fontSize: "13px" }}
+        />
+      </div>
+
+      <div style={{ overflowX: "auto", backgroundColor: "#ffffff", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+          <thead>
+            <tr style={{ backgroundColor: "#f8fafc", textAlign: "left", borderBottom: "1px solid #e2e8f0", color: "#475569" }}>
+              <th style={{ padding: "10px" }}>Agent Code</th>
+              <th style={{ padding: "10px" }}>Name</th>
+              <th style={{ padding: "10px" }}>Phone</th>
+              <th style={{ padding: "10px" }}>Working Area</th>
+              <th style={{ padding: "10px" }}>Assigned Cases</th>
+              <th style={{ padding: "10px" }}>Status</th>
+              <th style={{ padding: "10px", textAlign: "right" }}>Action</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={7} style={{ padding: "24px", textAlign: "center", color: "#64748b" }}>
+                  Executives load ho rahe hain...
+                </td>
+              </tr>
+            ) : filteredExecutives.length > 0 ? (
+              filteredExecutives.map((item: Executive) => {
+                const isActive = item.status === "active";
+                return (
+                  <tr key={item.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                    <td style={{ padding: "10px" }}>
+                      <strong style={{ color: "#2563eb" }}>{formatAgentCode(item.id, item.agent_code)}</strong>
+                    </td>
+                    <td style={{ padding: "10px", fontWeight: "600", color: "#0f172a" }}>{item.name}</td>
+                    <td style={{ padding: "10px", color: "#475569" }}>{item.phone}</td>
+                    <td style={{ padding: "10px", color: "#475569" }}>{item.area}</td>
+                    <td style={{ padding: "10px", fontWeight: "700" }}>{item.cases}</td>
+                    <td style={{ padding: "10px" }}>
+                      <span
+                        style={{
+                          padding: "3px 8px",
+                          borderRadius: "12px",
+                          fontSize: "11px",
+                          fontWeight: "700",
+                          backgroundColor: isActive ? "#ecfdf5" : "#fef2f2",
+                          color: isActive ? "#059669" : "#dc2626",
+                          textTransform: "capitalize"
+                        }}
+                      >
+                        {item.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: "10px", textAlign: "right" }}>
+                      <button
+                        onClick={() => toggleStatus(item)}
+                        style={{ padding: "4px 10px", backgroundColor: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: "4px", cursor: "pointer", marginRight: "6px", fontSize: "11px", fontWeight: "600" }}
+                      >
+                        {isActive ? "Deactivate" : "Activate"}
+                      </button>
+
+                      <button
+                        onClick={() => deleteExecutive(item)}
+                        style={{ padding: "4px 10px", backgroundColor: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", borderRadius: "4px", cursor: "pointer", fontSize: "11px", fontWeight: "600" }}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan={7} style={{ padding: "24px", textAlign: "center", color: "#94a3b8" }}>
+                  No executives found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
-export default ExecutivesPage;
+export default ExecutiveManagement;

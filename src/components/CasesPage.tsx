@@ -5,14 +5,17 @@ type CaseStatus = "Pending" | "Visited" | "Paid" | "Overdue";
 
 type SupabaseCase = {
   id: number;
+  case_no?: string | null;
   case_number?: string | null;
   account_no?: string | null;
   customer_name?: string | null;
   customer?: string | null;
+  phone?: string | null;
   mobile?: string | null;
   bank_name?: string | null;
   bank?: string | null;
   area?: string | null;
+  assigned_executive?: string | null;
   assigned_agent?: number | string | null;
   executive_id?: number | string | null;
   executive?: string | null;
@@ -24,6 +27,7 @@ type SupabaseCase = {
 
 type ExecutiveRow = {
   id: number | string;
+  executive_code?: string | null;
   name?: string | null;
   full_name?: string | null;
   executive_name?: string | null;
@@ -38,7 +42,7 @@ type CaseItem = {
   mobile: string;
   bank: string;
   area: string;
-  executiveId: string;
+  executiveCode: string;
   executive: string;
   amount: number;
   status: CaseStatus;
@@ -49,7 +53,7 @@ type EditForm = {
   mobile: string;
   bank: string;
   area: string;
-  executiveId: string;
+  executiveCode: string;
   amount: string;
   status: CaseStatus;
 };
@@ -99,20 +103,25 @@ function CasesPage() {
     mobile: "",
     bank: "",
     area: "",
-    executiveId: "",
+    executiveCode: "",
     amount: "",
     status: "Pending",
   });
 
+  // Map for display names (Supports both code and ID lookups)
   const executiveNameMap = useMemo(() => {
     const map = new Map<string, string>();
     executives.forEach((item) => {
       const name =
-        item.name?.trim() ||
         item.full_name?.trim() ||
+        item.name?.trim() ||
         item.executive_name?.trim() ||
         `Executive ${item.id}`;
-      map.set(String(item.id), name);
+
+      const code = item.executive_code?.trim() || `SS00${item.id}`;
+      
+      map.set(code.toLowerCase(), `${code} - ${name}`);
+      map.set(String(item.id), `${code} - ${name}`);
     });
     return map;
   }, [executives]);
@@ -151,31 +160,28 @@ function CasesPage() {
     const activeExecutives = executiveRows ?? executives;
     const nameMap = new Map<string, string>();
     activeExecutives.forEach((item) => {
-      nameMap.set(
-        String(item.id),
-        item.name?.trim() ||
-          item.full_name?.trim() ||
-          item.executive_name?.trim() ||
-          `Executive ${item.id}`
-      );
+      const name = item.full_name?.trim() || item.name?.trim() || `Executive ${item.id}`;
+      const code = item.executive_code?.trim() || `SS00${item.id}`;
+      nameMap.set(code.toLowerCase(), `${code} ${name}`);
+      nameMap.set(String(item.id), `${code} ${name}`);
     });
 
     const mapped: CaseItem[] = rows.map((item) => {
-      const assigned = item.assigned_agent ?? item.executive_id ?? "";
-      const assignedKey = String(assigned ?? "");
+      const assigned = item.assigned_executive ?? item.assigned_agent ?? item.executive_id ?? "";
+      const assignedKey = String(assigned ?? "").trim();
       const directExecutive = item.executive?.trim() || "";
 
       return {
         id: Number(item.id),
-        accountNo: String(item.case_number ?? item.account_no ?? "-"),
+        accountNo: String(item.case_no ?? item.case_number ?? item.account_no ?? "-"),
         customer: String(item.customer_name ?? item.customer ?? "Unknown"),
-        mobile: String(item.mobile ?? "-"),
+        mobile: String(item.phone ?? item.mobile ?? "-"),
         bank: String(item.bank_name ?? item.bank ?? "-"),
         area: String(item.area ?? "Unassigned"),
-        executiveId: assignedKey,
+        executiveCode: assignedKey,
         executive:
           directExecutive ||
-          (assignedKey ? nameMap.get(assignedKey) || `Executive ${assignedKey}` : "Unassigned"),
+          (assignedKey ? nameMap.get(assignedKey.toLowerCase()) || nameMap.get(assignedKey) || assignedKey : "Unassigned"),
         amount: toNumber(
           item.loan_amount ?? item.outstanding_amount ?? item.amount ?? 0
         ),
@@ -262,7 +268,7 @@ function CasesPage() {
       mobile: item.mobile === "-" ? "" : item.mobile,
       bank: item.bank === "-" ? "" : item.bank,
       area: item.area === "Unassigned" ? "" : item.area,
-      executiveId: item.executiveId,
+      executiveCode: item.executiveCode,
       amount: String(item.amount),
       status: item.status,
     });
@@ -278,12 +284,16 @@ function CasesPage() {
     setSuccess("");
 
     try {
+      const execCode = editForm.executiveCode.trim() || null;
+
       const payload = {
         customer_name: editForm.customer.trim(),
+        phone: editForm.mobile.trim() || null,
         mobile: editForm.mobile.trim() || null,
         bank_name: editForm.bank.trim() || null,
         area: editForm.area.trim() || null,
-        assigned_agent: editForm.executiveId || null,
+        assigned_executive: execCode,
+        assigned_agent: execCode,
         loan_amount: toNumber(editForm.amount),
         status: editForm.status,
       };
@@ -295,8 +305,8 @@ function CasesPage() {
 
       if (updateError) throw updateError;
 
-      const executiveName = editForm.executiveId
-        ? executiveNameMap.get(editForm.executiveId) || `Executive ${editForm.executiveId}`
+      const executiveName = execCode
+        ? executiveNameMap.get(execCode.toLowerCase()) || execCode
         : "Unassigned";
 
       setCases((current) =>
@@ -305,10 +315,10 @@ function CasesPage() {
             ? {
                 ...item,
                 customer: payload.customer_name || "Unknown",
-                mobile: payload.mobile || "-",
+                mobile: payload.phone || "-",
                 bank: payload.bank_name || "-",
                 area: payload.area || "Unassigned",
-                executiveId: editForm.executiveId,
+                executiveCode: execCode || "",
                 executive: executiveName,
                 amount: payload.loan_amount,
                 status: payload.status,
@@ -338,7 +348,7 @@ function CasesPage() {
         .cases-panel{margin-top:20px;padding:22px;border:1px solid #e2e8f0;border-radius:20px;background:#fff;box-shadow:0 12px 35px rgba(15,23,42,.07)}.cases-panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}.cases-panel-head h2{margin:0;font-size:19px;letter-spacing:-.02em}.cases-panel-head p{margin:5px 0 0;color:#64748b;font-size:13px}.cases-count-badge{display:inline-flex;align-items:center;padding:8px 11px;border-radius:999px;color:#1d4ed8;background:#eff6ff;font-size:12px;font-weight:800;white-space:nowrap}
         .cases-filter-grid{display:grid;grid-template-columns:minmax(250px,1.5fr) repeat(2,minmax(170px,.6fr));gap:14px}.cases-field{display:flex;flex-direction:column;gap:8px}.cases-field label{color:#334155;font-size:12px;font-weight:800}.cases-input,.cases-select{width:100%;height:48px;padding:0 14px;border:1px solid #cbd5e1;border-radius:13px;background:#fff;color:#0f172a;font-size:14px;outline:none;transition:.2s ease}.cases-input:focus,.cases-select:focus{border-color:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.11)}
         .cases-table-wrap{width:100%;max-height:600px;overflow:auto;border:1px solid #e2e8f0;border-radius:15px}.cases-table{width:100%;min-width:1120px;border-collapse:separate;border-spacing:0;background:#fff;font-size:13px}.cases-table th{position:sticky;top:0;z-index:2;padding:13px 14px;border-bottom:1px solid #e2e8f0;background:#f8fafc;color:#475569;text-align:left;font-size:11px;font-weight:850;letter-spacing:.045em;text-transform:uppercase;white-space:nowrap}.cases-table td{padding:14px;border-bottom:1px solid #eef2f7;color:#334155;vertical-align:middle}.cases-table tbody tr:hover td{background:#fbfdff}.case-customer{min-width:190px}.case-customer strong{display:block;color:#0f172a;font-size:13px}.case-customer span{display:block;margin-top:4px;color:#64748b;font-size:12px}.case-account{color:#0f172a;font-weight:800;font-variant-numeric:tabular-nums}.case-money{color:#0f172a;font-weight:850;white-space:nowrap}
-        .case-status{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font-size:11px;font-weight:850;white-space:nowrap}.case-status.pending{color:#b45309;background:#fffbeb}.case-status.visited{color:#1d4ed8;background:#eff6ff}.case-status.paid{color:#047857;background:#ecfdf5}.case-status.overdue{color:#b91c1c;background:#fef2f2}.case-actions{display:flex;gap:7px}.case-action-btn{min-height:34px;padding:0 10px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#334155;font-size:11px;font-weight:800;cursor:pointer}.case-action-btn.primary{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}.case-action-btn:disabled{opacity:.55;cursor:not-allowed}.cases-empty{padding:45px 20px;color:#64748b;text-align:center}
+        .case-status{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font-size:11px;font-weight:850;white-space:nowrap}.case-status.pending{color:#b45309;background:#fffbeb}.case-status.visited{color:#1d4ed8;background:#eff6ff}.case-status.paid{color:#047857;background:#ecfdf5}.case-status.overdue{color:#b91c1c;background:#fef2f2}.case-actions{display:flex;gap:7px}.case-action-btn{min-height:34px;padding:0 10px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#334155;font-size:11px;font-weight:800;cursor:pointer}.case-action-btn.primary{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}.case-action-btn:disabled{opacity:.55;cursor:not-allowed}.cases-empty{padding:45px 20px;color:#64748b;text-align:center}
         .cases-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}.cases-pagination-info{color:#64748b;font-size:13px}.cases-pagination-buttons{display:flex;align-items:center;gap:8px}.cases-pagination button{height:36px;padding:0 13px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#334155;font-weight:800;cursor:pointer}.cases-pagination button:disabled{opacity:.45;cursor:not-allowed}
         .cases-modal-backdrop{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(2,6,23,.58)}.cases-modal{width:min(720px,100%);max-height:92vh;overflow:auto;padding:22px;border-radius:20px;background:#fff;box-shadow:0 30px 80px rgba(2,6,23,.35)}.cases-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.cases-modal-head h3{margin:0}.cases-close{border:0;background:#f1f5f9;width:36px;height:36px;border-radius:9px;cursor:pointer;font-size:18px}.cases-detail-grid,.cases-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.cases-detail{padding:13px;border:1px solid #e2e8f0;border-radius:12px}.cases-detail span{display:block;color:#64748b;font-size:11px;font-weight:800;text-transform:uppercase}.cases-detail strong{display:block;margin-top:6px;color:#0f172a}.cases-modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.cases-modal-actions button{height:42px;padding:0 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;font-weight:800;cursor:pointer}.cases-modal-actions .save{border-color:#2563eb;background:#2563eb;color:#fff}
         @media(max-width:1050px){.cases-stats{grid-template-columns:repeat(2,1fr)}.cases-filter-grid{grid-template-columns:1fr}}@media(max-width:720px){.cases-page{padding:14px}.cases-hero,.cases-panel-head,.cases-pagination{align-items:flex-start;flex-direction:column}.cases-hero-badge{width:100%}.cases-detail-grid,.cases-edit-grid{grid-template-columns:1fr}}@media(max-width:480px){.cases-stats{grid-template-columns:1fr}}
@@ -346,8 +356,8 @@ function CasesPage() {
 
       <section className="cases-hero">
         <div>
-          <div className="cases-kicker"><span>◆</span>Case Management</div>
-          <h1>Recovery Cases</h1>
+          <div className="cases-kicker"><span>◆</span>Powered by Akyos</div>
+          <h1>Recovery Cases V2</h1>
           <p>Customer cases ko search, filter, monitor aur executive-wise manage karein.</p>
         </div>
         <div className="cases-hero-badge">
@@ -410,7 +420,7 @@ function CasesPage() {
         <div className="cases-field"><label>Mobile</label><input className="cases-input" value={editForm.mobile} onChange={(event) => setEditForm((current) => ({ ...current, mobile: event.target.value }))} /></div>
         <div className="cases-field"><label>Bank</label><input className="cases-input" value={editForm.bank} onChange={(event) => setEditForm((current) => ({ ...current, bank: event.target.value }))} /></div>
         <div className="cases-field"><label>Area</label><input className="cases-input" value={editForm.area} onChange={(event) => setEditForm((current) => ({ ...current, area: event.target.value }))} /></div>
-        <div className="cases-field"><label>Executive</label><select className="cases-select" value={editForm.executiveId} onChange={(event) => setEditForm((current) => ({ ...current, executiveId: event.target.value }))}><option value="">Unassigned</option>{executives.map((item) => <option key={String(item.id)} value={String(item.id)}>{item.name || item.full_name || item.executive_name || `Executive ${item.id}`}</option>)}</select></div>
+        <div className="cases-field"><label>Assigned Executive</label><select className="cases-select" value={editForm.executiveCode} onChange={(event) => setEditForm((current) => ({ ...current, executiveCode: event.target.value }))}><option value="">Unassigned</option>{executives.map((item) => { const code = item.executive_code || `SS00${item.id}`; return <option key={String(item.id)} value={code}>{code} - {item.full_name || item.name || `Executive ${item.id}`}</option>; })}</select></div>
         <div className="cases-field"><label>Outstanding Amount</label><input type="number" min="0" step="0.01" className="cases-input" value={editForm.amount} onChange={(event) => setEditForm((current) => ({ ...current, amount: event.target.value }))} /></div>
         <div className="cases-field"><label>Status</label><select className="cases-select" value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as CaseStatus }))}>{statusOptions.filter((item) => item !== "All").map((item) => <option key={item}>{item}</option>)}</select></div>
       </div><div className="cases-modal-actions"><button disabled={saving} onClick={() => setEditCase(null)}>Cancel</button><button className="save" disabled={saving || !editForm.customer.trim()} onClick={() => void saveCase()}>{saving ? "Saving..." : "Save Changes"}</button></div></div></div>}
