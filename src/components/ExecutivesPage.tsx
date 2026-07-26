@@ -11,6 +11,20 @@ type Executive = {
   status: string;
 };
 
+// Available pre-defined areas for Neemuch region
+const PREDEFINED_AREAS = [
+  "CRPF Neemuch",
+  "Neemuch City",
+  "Neemuch Cantt",
+  "CRPF Road Neemuch",
+  "Mandsaur",
+  "Manasa",
+  "Jawad",
+  "Singoli",
+  "Rampura",
+  "Custom Area (Type manually)"
+];
+
 export default function ExecutivesPage(): React.ReactElement {
   const [executives, setExecutives] = useState<Executive[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,7 +32,8 @@ export default function ExecutivesPage(): React.ReactElement {
   // Form State
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
-  const [area, setArea] = useState("CRPF Neemuch");
+  const [selectedArea, setSelectedArea] = useState("CRPF Neemuch");
+  const [customArea, setCustomArea] = useState("");
   const [vehicleType, setVehicleType] = useState("car");
   const [isAdding, setIsAdding] = useState(false);
 
@@ -63,17 +78,22 @@ export default function ExecutivesPage(): React.ReactElement {
       return;
     }
 
+    const finalArea = selectedArea === "Custom Area (Type manually)" ? customArea.trim() : selectedArea;
+    if (!finalArea) {
+      alert("Please specify an area.");
+      return;
+    }
+
     setIsAdding(true);
 
     try {
       const generatedCode = `SS${Math.floor(100 + Math.random() * 900)}`;
 
-      // Removed vehicle_type from insert to match Supabase schema
       const newExec = {
         executive_code: generatedCode,
         full_name: fullName.trim(),
         phone: phone.trim(),
-        area: area.trim(),
+        area: finalArea,
         status: "active",
       };
 
@@ -81,9 +101,10 @@ export default function ExecutivesPage(): React.ReactElement {
 
       if (error) throw error;
 
-      alert(`Executive ${fullName} added successfully! Code: ${generatedCode}`);
+      alert(`Executive ${fullName} added successfully for ${finalArea}! Code: ${generatedCode}`);
       setFullName("");
       setPhone("");
+      setCustomArea("");
       void fetchExecutives();
     } catch (err: any) {
       alert("Executive Add Error: " + err.message);
@@ -134,18 +155,34 @@ export default function ExecutivesPage(): React.ReactElement {
             style={{ padding: "10px 14px", borderRadius: "8px", border: "1px solid #cbd5e1", flex: "1 1 180px" }}
           />
 
-          <input
-            type="text"
-            placeholder="Area (e.g. CRPF Neemuch)"
-            value={area}
-            onChange={(e) => setArea(e.target.value)}
-            style={{ padding: "10px 14px", borderRadius: "8px", border: "1px solid #cbd5e1", flex: "1 1 200px" }}
-          />
+          {/* Area Selection Dropdown */}
+          <select
+            value={selectedArea}
+            onChange={(e) => setSelectedArea(e.target.value)}
+            style={{ padding: "10px 14px", borderRadius: "8px", border: "1px solid #cbd5e1", flex: "1 1 200px", backgroundColor: "#fff" }}
+          >
+            {PREDEFINED_AREAS.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+
+          {/* Manual Area Input if Custom Selected */}
+          {selectedArea === "Custom Area (Type manually)" && (
+            <input
+              type="text"
+              placeholder="Enter Custom Area Name"
+              value={customArea}
+              onChange={(e) => setCustomArea(e.target.value)}
+              style={{ padding: "10px 14px", borderRadius: "8px", border: "1px solid #2563eb", flex: "1 1 200px" }}
+            />
+          )}
 
           <select
             value={vehicleType}
             onChange={(e) => setVehicleType(e.target.value)}
-            style={{ padding: "10px 14px", borderRadius: "8px", border: "1px solid #cbd5e1", flex: "1 1 120px" }}
+            style={{ padding: "10px 14px", borderRadius: "8px", border: "1px solid #cbd5e1", flex: "1 1 100px" }}
           >
             <option value="bike">Bike</option>
             <option value="car">Car</option>
