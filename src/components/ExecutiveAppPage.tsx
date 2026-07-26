@@ -11,6 +11,13 @@ type ExecutiveRow = {
   phone?: string | null;
   mobile?: string | null;
   area: string | null;
+  pan?: string | null;
+  joining_date?: string | null;
+  salary?: number | null;
+  petrol_allowance?: number | null;
+  incentive?: number | null;
+  advance?: number | null;
+  photo_url?: string | null;
   status: string | null;
   is_online?: boolean | null;
   last_seen?: string | null;
@@ -35,6 +42,13 @@ type ExecutiveCard = {
   name: string;
   mobile: string;
   area: string;
+  pan: string;
+  joiningDate: string;
+  salary: number;
+  petrolAllowance: number;
+  incentive: number;
+  advance: number;
+  photoUrl: string;
   status: string;
   appStatus: "Online" | "Offline";
   lastSeen: string;
@@ -152,12 +166,10 @@ function ExecutiveAppPage() {
 
       const rows = (executiveResult.data ?? []) as ExecutiveRow[];
       
-      // Dual Mapping: Support matching by Code OR ID
       const casesByExecCode = new Map<string, CaseRow[]>();
       const casesByExecId = new Map<number, CaseRow[]>();
 
       for (const item of cases) {
-        // Match by Executive Code (Primary String Code, e.g. "SS593")
         if (item.assigned_executive) {
           const codeKey = item.assigned_executive.trim().toLowerCase();
           const current = casesByExecCode.get(codeKey) ?? [];
@@ -165,7 +177,6 @@ function ExecutiveAppPage() {
           casesByExecCode.set(codeKey, current);
         }
 
-        // Match by Numeric Executive ID
         const executiveId = Number(item.assigned_executive_id);
         if (Number.isFinite(executiveId)) {
           const current = casesByExecId.get(executiveId) ?? [];
@@ -178,11 +189,9 @@ function ExecutiveAppPage() {
         const execCode = (row.executive_code || row.agent_code || row.code || `SS${row.id}`).trim();
         const codeKey = execCode.toLowerCase();
 
-        // Combine cases mapped via Executive Code OR Executive ID
         const assignedByCode = casesByExecCode.get(codeKey) ?? [];
         const assignedById = casesByExecId.get(Number(row.id)) ?? [];
         
-        // Merge & remove duplicates
         const caseMap = new Map<number, CaseRow>();
         [...assignedByCode, ...assignedById].forEach((c) => caseMap.set(c.id, c));
         const assigned = Array.from(caseMap.values());
@@ -197,6 +206,13 @@ function ExecutiveAppPage() {
           name: row.full_name?.trim() || row.name?.trim() || "Unnamed Executive",
           mobile: row.phone?.trim() || row.mobile?.trim() || "Not available",
           area: row.area?.trim() || "Not assigned",
+          pan: row.pan?.trim() || "-",
+          joiningDate: row.joining_date || "-",
+          salary: Number(row.salary) || 0,
+          petrolAllowance: Number(row.petrol_allowance) || 0,
+          incentive: Number(row.incentive) || 0,
+          advance: Number(row.advance) || 0,
+          photoUrl: row.photo_url || "",
           status: row.status?.trim() || "Active",
           appStatus: row.is_online ? "Online" : "Offline",
           lastSeen: row.last_seen ?? "",
@@ -294,10 +310,10 @@ function ExecutiveAppPage() {
         .executive-workspace{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(330px,.65fr);gap:20px;margin-top:20px}.executive-panel{padding:22px;border:1px solid #e2e8f0;border-radius:20px;background:#fff;box-shadow:0 12px 35px rgba(15,23,42,.07)}.executive-panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}.executive-panel-head h2{margin:0;font-size:19px}.executive-panel-head p{margin:5px 0 0;color:#64748b;font-size:13px}
         .executive-filter-grid{display:grid;grid-template-columns:minmax(220px,1fr) minmax(150px,220px) minmax(150px,220px);gap:12px}.executive-control{width:100%;height:46px;padding:0 13px;border:1px solid #cbd5e1;border-radius:11px;background:#fff;color:#0f172a;font-size:13px;outline:none}.executive-control:focus{border-color:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.1)}
         .executive-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:18px}.executive-card{width:100%;padding:18px;border:1px solid #e2e8f0;border-radius:16px;background:#fff;box-shadow:0 8px 24px rgba(15,23,42,.05);text-align:left;cursor:pointer;transition:.18s ease}.executive-card:hover,.executive-card.selected{border-color:#93c5fd;box-shadow:0 10px 28px rgba(37,99,235,.12);transform:translateY(-1px)}
-        .executive-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.executive-profile{display:flex;gap:11px;min-width:0}.executive-avatar{width:44px;height:44px;display:grid;place-items:center;flex:0 0 auto;border-radius:13px;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:900}.executive-profile strong{display:block;color:#0f172a;font-size:15px}.executive-profile small{display:block;margin-top:4px;color:#64748b;font-size:11px;overflow-wrap:anywhere}
+        .executive-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.executive-profile{display:flex;gap:11px;min-width:0}.executive-avatar{width:44px;height:44px;display:grid;place-items:center;flex:0 0 auto;border-radius:13px;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:900;overflow:hidden}.executive-avatar img{width:100%;height:100%;object-fit:cover}.executive-profile strong{display:block;color:#0f172a;font-size:15px}.executive-profile small{display:block;margin-top:4px;color:#64748b;font-size:11px;overflow-wrap:anywhere}
         .executive-status{padding:6px 9px;border-radius:999px;font-size:10px;font-weight:850;white-space:nowrap}.executive-status.online{color:#047857;background:#ecfdf5}.executive-status.offline{color:#64748b;background:#f1f5f9}.executive-mobile{margin-top:14px;color:#475569;font-size:13px}
         .executive-card-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:16px;padding-top:14px;border-top:1px solid #e2e8f0}.executive-card-metrics span{display:block;color:#64748b;font-size:9px;font-weight:800;text-transform:uppercase}.executive-card-metrics strong{display:block;margin-top:4px;font-size:18px}.executive-progress{height:7px;margin-top:14px;overflow:hidden;border-radius:999px;background:#e2e8f0}.executive-progress>div{height:100%;border-radius:inherit;background:linear-gradient(90deg,#2563eb,#0ea5e9)}.executive-progress-text{display:flex;justify-content:space-between;gap:10px;margin-top:6px;color:#64748b;font-size:10px;font-weight:700}.executive-last-seen{margin-top:12px;color:#64748b;font-size:11px}
-        .executive-detail-profile{display:flex;align-items:center;gap:13px;padding-bottom:18px;border-bottom:1px solid #e2e8f0}.executive-detail-avatar{width:58px;height:58px;display:grid;place-items:center;flex:0 0 auto;border-radius:17px;background:#eff6ff;color:#1d4ed8;font-size:17px;font-weight:900}.executive-detail-profile h3{margin:0;font-size:18px}.executive-detail-profile p{margin:6px 0 0;color:#64748b;font-size:12px}.executive-detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}.executive-detail-box{padding:13px;border:1px solid #e2e8f0;border-radius:13px;background:#f8fafc}.executive-detail-box span{display:block;color:#94a3b8;font-size:9px;font-weight:900;text-transform:uppercase}.executive-detail-box strong{display:block;margin-top:5px;color:#334155;font-size:13px;overflow-wrap:anywhere}
+        .executive-detail-profile{display:flex;align-items:center;gap:13px;padding-bottom:18px;border-bottom:1px solid #e2e8f0}.executive-detail-avatar{width:58px;height:58px;display:grid;place-items:center;flex:0 0 auto;border-radius:17px;background:#eff6ff;color:#1d4ed8;font-size:17px;font-weight:900;overflow:hidden}.executive-detail-avatar img{width:100%;height:100%;object-fit:cover}.executive-detail-profile h3{margin:0;font-size:18px}.executive-detail-profile p{margin:6px 0 0;color:#64748b;font-size:12px}.executive-detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}.executive-detail-box{padding:13px;border:1px solid #e2e8f0;border-radius:13px;background:#f8fafc}.executive-detail-box span{display:block;color:#94a3b8;font-size:9px;font-weight:900;text-transform:uppercase}.executive-detail-box strong{display:block;margin-top:5px;color:#334155;font-size:13px;overflow-wrap:anywhere}
         .executive-case-list{display:flex;flex-direction:column;gap:9px;max-height:390px;margin-top:16px;overflow-y:auto}.executive-case-row{padding:12px;border:1px solid #e2e8f0;border-radius:12px;background:#fff}.executive-case-row-top{display:flex;justify-content:space-between;gap:10px}.executive-case-row strong{font-size:12px}.executive-case-row span{color:#64748b;font-size:10px}.executive-case-row p{margin:7px 0 0;color:#475569;font-size:11px;line-height:1.5}.executive-empty,.executive-loading{padding:42px 15px;color:#64748b;text-align:center;font-size:13px;font-weight:700}
         @media(max-width:1180px){.executive-stats{grid-template-columns:repeat(3,1fr)}.executive-workspace{grid-template-columns:1fr}}@media(max-width:760px){.executive-app-page{padding:14px}.executive-stats{grid-template-columns:repeat(2,1fr)}.executive-filter-grid{grid-template-columns:1fr}.executive-panel-head{align-items:flex-start;flex-direction:column}}@media(max-width:480px){.executive-stats{grid-template-columns:1fr}.executive-card-metrics,.executive-detail-grid{grid-template-columns:1fr}}
       `}</style>
@@ -307,7 +323,7 @@ function ExecutiveAppPage() {
           <div>
             <div className="executive-kicker">Field Executive Command Center</div>
             <h1>Executive Mobile App</h1>
-            <p>Shiv Shakti Recovery: Real-time availability, case allocations aur performance overview.</p>
+            <p>Shiv Shakti Recovery: Real-time availability, payroll summary aur case allocation dashboard.</p>
           </div>
 
           <button className="executive-refresh" type="button" disabled={refreshing || loading} onClick={() => void loadData(true)}>
@@ -358,7 +374,19 @@ function ExecutiveAppPage() {
               {filteredExecutives.map((executive) => (
                 <button key={executive.id} type="button" className={`executive-card ${selectedExecutiveId === executive.id ? "selected" : ""}`} onClick={() => setSelectedExecutiveId(executive.id)}>
                   <div className="executive-card-top">
-                    <div className="executive-profile"><div className="executive-avatar">{initials(executive.name)}</div><div><strong>{executive.name}</strong><small>{executive.code} · {executive.area}</small></div></div>
+                    <div className="executive-profile">
+                      <div className="executive-avatar">
+                        {executive.photoUrl ? (
+                          <img src={executive.photoUrl} alt={executive.name} />
+                        ) : (
+                          initials(executive.name)
+                        )}
+                      </div>
+                      <div>
+                        <strong>{executive.name}</strong>
+                        <small>{executive.code} · {executive.area}</small>
+                      </div>
+                    </div>
                     <span className={`executive-status ${executive.appStatus === "Online" ? "online" : "offline"}`}>{executive.appStatus}</span>
                   </div>
                   <div className="executive-mobile">Mobile: <strong>{executive.mobile}</strong></div>
@@ -374,18 +402,36 @@ function ExecutiveAppPage() {
         </article>
 
         <aside className="executive-panel">
-          <div className="executive-panel-head"><div><h2>Executive Details</h2><p>Selected executive ka current workload.</p></div></div>
+          <div className="executive-panel-head"><div><h2>Executive Details</h2><p>Selected executive details & payroll summary.</p></div></div>
           {selectedExecutive ? (
             <>
-              <div className="executive-detail-profile"><div className="executive-detail-avatar">{initials(selectedExecutive.name)}</div><div><h3>{selectedExecutive.name}</h3><p>{selectedExecutive.code} · {selectedExecutive.area}</p></div></div>
+              <div className="executive-detail-profile">
+                <div className="executive-detail-avatar">
+                  {selectedExecutive.photoUrl ? (
+                    <img src={selectedExecutive.photoUrl} alt={selectedExecutive.name} />
+                  ) : (
+                    initials(selectedExecutive.name)
+                  )}
+                </div>
+                <div>
+                  <h3>{selectedExecutive.name}</h3>
+                  <p>{selectedExecutive.code} · {selectedExecutive.area}</p>
+                </div>
+              </div>
+
               <div className="executive-detail-grid">
                 <div className="executive-detail-box"><span>Mobile</span><strong>{selectedExecutive.mobile}</strong></div>
                 <div className="executive-detail-box"><span>App Status</span><strong>{selectedExecutive.appStatus}</strong></div>
-                <div className="executive-detail-box"><span>Executive Status</span><strong>{selectedExecutive.status}</strong></div>
+                <div className="executive-detail-box"><span>Status</span><strong>{selectedExecutive.status}</strong></div>
+                <div className="executive-detail-box"><span>PAN</span><strong>{selectedExecutive.pan}</strong></div>
+                <div className="executive-detail-box"><span>Joining Date</span><strong>{selectedExecutive.joiningDate}</strong></div>
+                <div className="executive-detail-box"><span>Base Salary</span><strong>{money(selectedExecutive.salary)}</strong></div>
+                <div className="executive-detail-box"><span>Petrol Allowance</span><strong>{money(selectedExecutive.petrolAllowance)}</strong></div>
+                <div className="executive-detail-box"><span>Advance Taken</span><strong>{money(selectedExecutive.advance)}</strong></div>
                 <div className="executive-detail-box"><span>Completion</span><strong>{selectedExecutive.completionPercent}%</strong></div>
-                <div className="executive-detail-box"><span>Visited</span><strong>{selectedExecutive.visitedCases}</strong></div>
                 <div className="executive-detail-box"><span>Last Seen</span><strong>{formatDateTime(selectedExecutive.lastSeen)}</strong></div>
               </div>
+
               <div className="executive-case-list">
                 {selectedExecutive.cases.slice(0, 30).map((item) => (
                   <div className="executive-case-row" key={item.id}>
