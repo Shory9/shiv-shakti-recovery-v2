@@ -101,48 +101,52 @@ function BankImportPage(): React.ReactElement {
     return "";
   };
 
-  // Smart & Precise Executive Area Matching
-  const matchExecutiveByArea = (areaStr: string, execsList: Executive[]) => {
+  // Explicit return type defined to avoid 'type never' inference issue
+  const matchExecutiveByArea = (areaStr: string, execsList: Executive[]): Executive | null => {
     if (!areaStr || execsList.length === 0) return null;
 
-    const cleanTargetArea = cleanAreaString(areaStr);
-    const targetRaw = areaStr.toLowerCase().trim();
+    const rawTarget = areaStr.toLowerCase().trim();
+    const cleanTarget = cleanAreaString(areaStr);
 
-    // Priority 1: Exact Substring or Exact Match
-    const exactMatch = execsList.find((exec) => {
-      if (!exec.area) return false;
-      const cleanExecArea = cleanAreaString(exec.area);
-      const execRaw = exec.area.toLowerCase().trim();
-
-      return (
-        cleanTargetArea === cleanExecArea ||
-        targetRaw.includes(execRaw) ||
-        cleanTargetArea.includes(cleanExecArea)
-      );
-    });
-
-    if (exactMatch) return exactMatch;
-
-    // Priority 2: Longest Specific Name Match (CRPF Neemuch > Neemuch)
-    let bestMatch: Executive | null = null;
-    let maxMatchLength = 0;
+    let bestExec: Executive | null = null;
+    let highestScore = 0;
 
     execsList.forEach((exec) => {
       if (!exec.area) return;
+
+      const rawExecArea = exec.area.toLowerCase().trim();
       const cleanExecArea = cleanAreaString(exec.area);
 
-      if (
-        cleanTargetArea.includes(cleanExecArea) ||
-        cleanExecArea.includes(cleanTargetArea)
+      if (!cleanExecArea && !rawExecArea) return;
+
+      let score = 0;
+
+      // 1. Exact Match
+      if (rawTarget === rawExecArea || cleanTarget === cleanExecArea) {
+        score = 1000 + cleanExecArea.length;
+      }
+      // 2. Specific Substring Match
+      else if (
+        rawTarget.includes(rawExecArea) ||
+        cleanTarget.includes(cleanExecArea)
       ) {
-        if (cleanExecArea.length > maxMatchLength) {
-          maxMatchLength = cleanExecArea.length;
-          bestMatch = exec;
-        }
+        score = 500 + cleanExecArea.length;
+      }
+      // 3. Broad Containment Match
+      else if (
+        rawExecArea.includes(rawTarget) ||
+        cleanExecArea.includes(cleanTarget)
+      ) {
+        score = 100 + cleanExecArea.length;
+      }
+
+      if (score > highestScore) {
+        highestScore = score;
+        bestExec = exec;
       }
     });
 
-    return bestMatch;
+    return bestExec;
   };
 
   function handleFileUpload(e: ChangeEvent<HTMLInputElement>) {
@@ -181,8 +185,8 @@ function BankImportPage(): React.ReactElement {
 
           const isExisting = dbCaseNumbers.has(caseNo.toLowerCase());
 
-          // Match Executive using Smart String Matching
-          const matchingExec = matchExecutiveByArea(area, executives);
+          // Safely resolve type
+          const matchingExec: Executive | null = matchExecutiveByArea(area, executives);
 
           const execCode = matchingExec ? matchingExec.executive_code : "Unassigned";
           const execName = matchingExec ? matchingExec.full_name : "Unassigned";
@@ -212,7 +216,7 @@ function BankImportPage(): React.ReactElement {
         // Market Summaries
         const summaries: MarketSummary[] = Object.keys(marketMap).map((marketName) => {
           const stats = marketMap[marketName];
-          const matchingExec = matchExecutiveByArea(marketName, executives);
+          const matchingExec: Executive | null = matchExecutiveByArea(marketName, executives);
 
           const execNamesStr = matchingExec
             ? `${matchingExec.executive_code} ${matchingExec.full_name}`
