@@ -68,13 +68,12 @@ export default function ExecutivesPage(): React.ReactElement {
     try {
       const generatedCode = `SS${Math.floor(100 + Math.random() * 900)}`;
 
-      // Strict fix: Using executive_code instead of agent_code
+      // Removed vehicle_type from insert to match Supabase schema
       const newExec = {
         executive_code: generatedCode,
         full_name: fullName.trim(),
         phone: phone.trim(),
         area: area.trim(),
-        vehicle_type: vehicleType,
         status: "active",
       };
 
