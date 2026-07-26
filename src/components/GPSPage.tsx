@@ -1,9 +1,12 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { supabase } from "../supabaseClient";
 
-type GPSStatus = "Not Connected" | "Waiting for GPS";
+type RawRow = Record<string, unknown>;
+
+type GPSStatus = "Live" | "Recently Active" | "Offline" | "Not Connected";
 
 type ExecutiveLocation = {
-  id: number;
+  id: number | string;
   name: string;
   code: string;
   mobile: string;
@@ -15,71 +18,297 @@ type ExecutiveLocation = {
   lastUpdated: string | null;
 };
 
-const executives: ExecutiveLocation[] = [
-  {
-    id: 1,
-    name: "Bablu Nagda",
-    code: "EXE-001",
-    mobile: "9876543210",
-    area: "Neemuch",
-    status: "Not Connected",
-    latitude: null,
-    longitude: null,
-    accuracy: null,
-    lastUpdated: null,
-  },
-  {
-    id: 2,
-    name: "Kailash Nagda",
-    code: "EXE-002",
-    mobile: "9988776655",
-    area: "Manasa",
-    status: "Not Connected",
-    latitude: null,
-    longitude: null,
-    accuracy: null,
-    lastUpdated: null,
-  },
-  {
-    id: 3,
-    name: "Rahul Kumar",
-    code: "EXE-003",
-    mobile: "9123456780",
-    area: "Mandsaur",
-    status: "Waiting for GPS",
-    latitude: null,
-    longitude: null,
-    accuracy: null,
-    lastUpdated: null,
-  },
-  {
-    id: 4,
-    name: "Shivam Chouhan",
-    code: "EXE-004",
-    mobile: "9001122334",
-    area: "Jaora",
-    status: "Not Connected",
-    latitude: null,
-    longitude: null,
-    accuracy: null,
-    lastUpdated: null,
-  },
-  {
-    id: 5,
-    name: "Nayan Singh",
-    code: "EXE-005",
-    mobile: "9012345678",
-    area: "Sailana",
-    status: "Not Connected",
-    latitude: null,
-    longitude: null,
-    accuracy: null,
-    lastUpdated: null,
-  },
-];
+const LIVE_MINUTES = 5;
+const RECENT_MINUTES = 30;
+const AUTO_REFRESH_MS = 30_000;
+
+function textValue(row: RawRow, keys: string[], fallback = "") {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== null && value !== undefined && String(value).trim() !== "") {
+      return String(value).trim();
+    }
+  }
+  return fallback;
+}
+
+function numberValue(row: RawRow, keys: string[]) {
+  for (const key of keys) {
+    const value = row[key];
+    if (value === null || value === undefined || value === "") continue;
+
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  return null;
+}
+
+function validCoordinate(latitude: number | null, longitude: number | null) {
+  return (
+    latitude !== null &&
+    longitude !== null &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180 &&
+    !(latitude === 0 && longitude === 0)
+  );
+}
+
+function minutesSince(value: string | null) {
+  if (!value) return Number.POSITIVE_INFINITY;
+
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return Number.POSITIVE_INFINITY;
+
+  return Math.max(0, (Date.now() - time) / 60_000);
+}
+
+function getStatus(
+  latitude: number | null,
+  longitude: number | null,
+  lastUpdated: string | null
+): GPSStatus {
+  if (!validCoordinate(latitude, longitude)) return "Not Connected";
+
+  const age = minutesSince(lastUpdated);
+
+  if (age <= LIVE_MINUTES) return "Live";
+  if (age <= RECENT_MINUTES) return "Recently Active";
+  return "Offline";
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "No location";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "No location";
+
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getExecutiveId(row: RawRow) {
+  return textValue(row, ["executive_id", "employee_id", "agent_id", "user_id"]);
+}
+
+function getGpsTimestamp(row: RawRow) {
+  return textValue(
+    row,
+    ["recorded_at", "captured_at", "location_time", "updated_at", "created_at"],
+    ""
+  );
+}
+
+function mapUrl(latitude: number, longitude: number) {
+  const delta = 0.012;
+  const left = longitude - delta;
+  const right = longitude + delta;
+  const top = latitude + delta;
+  const bottom = latitude - delta;
+
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${latitude}%2C${longitude}`;
+}
+
+function googleMapsUrl(latitude: number, longitude: number) {
+  return `https://www.google.com/maps?q=${latitude},${longitude}`;
+}
 
 function GPSPage() {
+  const [executives, setExecutives] = useState<ExecutiveLocation[]>([]);
   const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+
+  const loadGPSData = useCallback(async (silent = false) => {
+    if (silent) setRefreshing(true);
+    else setLoading(true);
+
+    setError("");
+
+    try {
+      const allExecutives: RawRow[] = [];
+      const pageSize = 1000;
+      let from = 0;
+
+      while (true) {
+        const { data, error: executivesError } = await supabase
+          .from("executives")
+          .select("*")
+          .range(from, from + pageSize - 1);
+
+        if (executivesError) throw executivesError;
+
+        const rows = (data ?? []) as RawRow[];
+        allExecutives.push(...rows);
+
+        if (rows.length < pageSize) break;
+        from += pageSize;
+      }
+
+      const { data: gpsData, error: gpsError } = await supabase
+        .from("gps_locations")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(5000);
+
+      if (gpsError) throw gpsError;
+
+      const latestByExecutive = new Map<string, RawRow>();
+
+      for (const location of (gpsData ?? []) as RawRow[]) {
+        const executiveId = getExecutiveId(location);
+        if (!executiveId) continue;
+
+        const existing = latestByExecutive.get(executiveId);
+        if (!existing) {
+          latestByExecutive.set(executiveId, location);
+          continue;
+        }
+
+        const existingTime = new Date(getGpsTimestamp(existing)).getTime();
+        const currentTime = new Date(getGpsTimestamp(location)).getTime();
+
+        if (
+          Number.isFinite(currentTime) &&
+          (!Number.isFinite(existingTime) || currentTime > existingTime)
+        ) {
+          latestByExecutive.set(executiveId, location);
+        }
+      }
+
+      const merged = allExecutives.map((executive, index) => {
+        const id = textValue(executive, ["id"], String(index + 1));
+        const latestLocation = latestByExecutive.get(id);
+
+        const latitude = latestLocation
+          ? numberValue(latestLocation, ["latitude", "lat"])
+          : null;
+
+        const longitude = latestLocation
+          ? numberValue(latestLocation, ["longitude", "lng", "lon"])
+          : null;
+
+        const accuracy = latestLocation
+          ? numberValue(latestLocation, [
+              "accuracy",
+              "accuracy_metres",
+              "accuracy_meters",
+            ])
+          : null;
+
+        const lastUpdated = latestLocation
+          ? getGpsTimestamp(latestLocation) || null
+          : null;
+
+        return {
+          id,
+          name: textValue(
+            executive,
+            ["name", "full_name", "executive_name"],
+            "Unnamed Executive"
+          ),
+          code: textValue(
+            executive,
+            ["code", "executive_code", "employee_code"],
+            `EXE-${String(index + 1).padStart(3, "0")}`
+          ),
+          mobile: textValue(
+            executive,
+            ["mobile", "phone", "mobile_number", "phone_number"],
+            "Not available"
+          ),
+          area: textValue(
+            executive,
+            ["area", "assigned_area", "location"],
+            "Not assigned"
+          ),
+          latitude,
+          longitude,
+          accuracy,
+          lastUpdated,
+          status: getStatus(latitude, longitude, lastUpdated),
+        } satisfies ExecutiveLocation;
+      });
+
+      merged.sort((a, b) => {
+        const rank: Record<GPSStatus, number> = {
+          Live: 0,
+          "Recently Active": 1,
+          Offline: 2,
+          "Not Connected": 3,
+        };
+
+        const statusDifference = rank[a.status] - rank[b.status];
+        if (statusDifference !== 0) return statusDifference;
+
+        return a.name.localeCompare(b.name);
+      });
+
+      setExecutives(merged);
+      setLastRefresh(new Date());
+
+      setSelectedId((current) => {
+        if (current && merged.some((item) => String(item.id) === current)) {
+          return current;
+        }
+
+        const firstConnected = merged.find((item) =>
+          validCoordinate(item.latitude, item.longitude)
+        );
+
+        return firstConnected ? String(firstConnected.id) : "";
+      });
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "GPS data load nahi ho saka.";
+
+      setError(message);
+      console.error("GPS Tracking load error:", caughtError);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadGPSData();
+
+    const timer = window.setInterval(() => {
+      void loadGPSData(true);
+    }, AUTO_REFRESH_MS);
+
+    const channel = supabase
+      .channel("admin-gps-tracking")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "gps_locations",
+        },
+        () => {
+          void loadGPSData(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      window.clearInterval(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [loadGPSData]);
 
   const filteredExecutives = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -89,16 +318,36 @@ function GPSPage() {
         !query ||
         executive.name.toLowerCase().includes(query) ||
         executive.code.toLowerCase().includes(query) ||
-        executive.mobile.includes(query) ||
-        executive.area.toLowerCase().includes(query)
+        executive.mobile.toLowerCase().includes(query) ||
+        executive.area.toLowerCase().includes(query) ||
+        executive.status.toLowerCase().includes(query)
       );
     });
-  }, [search]);
+  }, [executives, search]);
 
-  const connectedCount = executives.filter(
+  const selectedExecutive = useMemo(
+    () =>
+      executives.find((executive) => String(executive.id) === selectedId) ??
+      null,
+    [executives, selectedId]
+  );
+
+  const liveCount = executives.filter(
+    (executive) => executive.status === "Live"
+  ).length;
+
+  const recentCount = executives.filter(
+    (executive) => executive.status === "Recently Active"
+  ).length;
+
+  const offlineCount = executives.filter(
+    (executive) => executive.status === "Offline"
+  ).length;
+
+  const invalidCount = executives.filter(
     (executive) =>
-      executive.latitude !== null &&
-      executive.longitude !== null
+      (executive.latitude !== null || executive.longitude !== null) &&
+      !validCoordinate(executive.latitude, executive.longitude)
   ).length;
 
   return (
@@ -108,19 +357,13 @@ function GPSPage() {
           min-height: 100%;
           padding: 26px;
           background:
-            radial-gradient(
-              circle at top right,
-              rgba(37, 99, 235, 0.08),
-              transparent 28%
-            ),
+            radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 28%),
             #f5f7fb;
           color: #0f172a;
           box-sizing: border-box;
         }
 
-        .gps-page * {
-          box-sizing: border-box;
-        }
+        .gps-page * { box-sizing: border-box; }
 
         .gps-hero {
           position: relative;
@@ -133,17 +376,8 @@ function GPSPage() {
           border-radius: 22px;
           color: white;
           background:
-            linear-gradient(
-              135deg,
-              rgba(255, 255, 255, 0.06),
-              transparent
-            ),
-            linear-gradient(
-              135deg,
-              #07192d 0%,
-              #0d2f55 56%,
-              #12497b 100%
-            );
+            linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent),
+            linear-gradient(135deg, #07192d 0%, #0d2f55 56%, #12497b 100%);
           box-shadow: 0 18px 45px rgba(7, 25, 45, 0.18);
         }
 
@@ -185,10 +419,13 @@ function GPSPage() {
           line-height: 1.65;
         }
 
-        .gps-hero-card {
+        .gps-hero-actions {
           position: relative;
           z-index: 1;
-          min-width: 200px;
+          min-width: 220px;
+        }
+
+        .gps-hero-card {
           padding: 17px 19px;
           border: 1px solid rgba(255, 255, 255, 0.18);
           border-radius: 16px;
@@ -209,6 +446,23 @@ function GPSPage() {
           display: block;
           margin-top: 7px;
           font-size: 23px;
+        }
+
+        .gps-refresh-button {
+          width: 100%;
+          height: 42px;
+          margin-top: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.24);
+          border-radius: 12px;
+          color: white;
+          background: rgba(255, 255, 255, 0.11);
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .gps-refresh-button:disabled {
+          cursor: wait;
+          opacity: 0.7;
         }
 
         .gps-stats {
@@ -240,6 +494,17 @@ function GPSPage() {
           margin-top: 8px;
           font-size: 25px;
           letter-spacing: -0.03em;
+        }
+
+        .gps-error {
+          margin-top: 18px;
+          padding: 14px 16px;
+          border: 1px solid #fecaca;
+          border-radius: 14px;
+          color: #991b1b;
+          background: #fef2f2;
+          font-size: 13px;
+          font-weight: 700;
         }
 
         .gps-main-grid {
@@ -282,11 +547,22 @@ function GPSPage() {
           align-items: center;
           padding: 8px 11px;
           border-radius: 999px;
-          color: #b45309;
-          background: #fffbeb;
           font-size: 12px;
           font-weight: 800;
           white-space: nowrap;
+        }
+
+        .gps-badge.live { color: #047857; background: #ecfdf5; }
+        .gps-badge.recent { color: #1d4ed8; background: #eff6ff; }
+        .gps-badge.offline { color: #b45309; background: #fffbeb; }
+        .gps-badge.none { color: #64748b; background: #f1f5f9; }
+
+        .gps-map-frame {
+          width: 100%;
+          min-height: 430px;
+          border: 0;
+          border-radius: 17px;
+          background: #e2e8f0;
         }
 
         .gps-map-placeholder {
@@ -297,17 +573,8 @@ function GPSPage() {
           border: 1px dashed #94a3b8;
           border-radius: 17px;
           background:
-            linear-gradient(
-              rgba(255, 255, 255, 0.84),
-              rgba(255, 255, 255, 0.84)
-            ),
-            repeating-linear-gradient(
-              45deg,
-              #e2e8f0,
-              #e2e8f0 18px,
-              #f8fafc 18px,
-              #f8fafc 36px
-            );
+            linear-gradient(rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.84)),
+            repeating-linear-gradient(45deg, #e2e8f0, #e2e8f0 18px, #f8fafc 18px, #f8fafc 36px);
           text-align: center;
         }
 
@@ -336,16 +603,49 @@ function GPSPage() {
           line-height: 1.65;
         }
 
-        .gps-warning {
-          margin-top: 16px;
-          padding: 13px 15px;
-          border: 1px solid #fde68a;
+        .gps-location-details {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 14px;
+        }
+
+        .gps-location-box {
+          padding: 12px;
+          border: 1px solid #e2e8f0;
           border-radius: 12px;
-          color: #92400e;
-          background: #fffbeb;
+          background: #f8fafc;
+        }
+
+        .gps-location-box span {
+          display: block;
+          color: #94a3b8;
+          font-size: 9px;
+          font-weight: 900;
+          text-transform: uppercase;
+        }
+
+        .gps-location-box strong {
+          display: block;
+          margin-top: 5px;
+          color: #334155;
           font-size: 12px;
-          font-weight: 700;
-          line-height: 1.55;
+          overflow-wrap: anywhere;
+        }
+
+        .gps-map-link {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 40px;
+          margin-top: 12px;
+          padding: 0 15px;
+          border-radius: 11px;
+          color: white;
+          background: #2563eb;
+          font-size: 13px;
+          font-weight: 800;
+          text-decoration: none;
         }
 
         .gps-search {
@@ -371,15 +671,26 @@ function GPSPage() {
           display: flex;
           flex-direction: column;
           gap: 11px;
-          max-height: 500px;
+          max-height: 595px;
           overflow-y: auto;
         }
 
         .gps-executive-card {
+          width: 100%;
           padding: 14px;
           border: 1px solid #e2e8f0;
           border-radius: 14px;
           background: #ffffff;
+          text-align: left;
+          cursor: pointer;
+          transition: 0.18s ease;
+        }
+
+        .gps-executive-card:hover,
+        .gps-executive-card.selected {
+          border-color: #93c5fd;
+          box-shadow: 0 8px 24px rgba(37, 99, 235, 0.10);
+          transform: translateY(-1px);
         }
 
         .gps-executive-top {
@@ -393,6 +704,7 @@ function GPSPage() {
           display: flex;
           align-items: center;
           gap: 11px;
+          min-width: 0;
         }
 
         .gps-avatar {
@@ -419,17 +731,21 @@ function GPSPage() {
           margin-top: 4px;
           color: #64748b;
           font-size: 11px;
+          overflow-wrap: anywhere;
         }
 
         .gps-status {
           padding: 6px 9px;
           border-radius: 999px;
-          color: #b45309;
-          background: #fffbeb;
           font-size: 10px;
           font-weight: 850;
           white-space: nowrap;
         }
+
+        .gps-status.live { color: #047857; background: #ecfdf5; }
+        .gps-status.recent { color: #1d4ed8; background: #eff6ff; }
+        .gps-status.offline { color: #b45309; background: #fffbeb; }
+        .gps-status.none { color: #64748b; background: #f1f5f9; }
 
         .gps-executive-meta {
           display: grid;
@@ -453,6 +769,7 @@ function GPSPage() {
           margin-top: 4px;
           color: #475569;
           font-size: 12px;
+          overflow-wrap: anywhere;
         }
 
         .gps-empty {
@@ -461,74 +778,34 @@ function GPSPage() {
           text-align: center;
         }
 
-        .gps-rules {
-          margin-top: 20px;
-        }
-
-        .gps-rule-list {
+        .gps-loading {
+          min-height: 300px;
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 14px;
-        }
-
-        .gps-rule {
-          padding: 16px;
-          border: 1px solid #e2e8f0;
-          border-radius: 15px;
-          background: #f8fafc;
-        }
-
-        .gps-rule strong {
-          display: block;
-          color: #0f172a;
-          font-size: 13px;
-        }
-
-        .gps-rule p {
-          margin: 7px 0 0;
+          place-items: center;
           color: #64748b;
-          font-size: 12px;
-          line-height: 1.55;
+          font-weight: 800;
         }
 
         @media (max-width: 1100px) {
-          .gps-stats {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
-          .gps-main-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .gps-rule-list {
-            grid-template-columns: 1fr;
-          }
+          .gps-stats { grid-template-columns: repeat(2, 1fr); }
+          .gps-main-grid { grid-template-columns: 1fr; }
+          .gps-location-details { grid-template-columns: repeat(2, 1fr); }
         }
 
         @media (max-width: 720px) {
-          .gps-page {
-            padding: 14px;
-          }
-
+          .gps-page { padding: 14px; }
           .gps-hero,
           .gps-panel-head {
             align-items: flex-start;
             flex-direction: column;
           }
-
-          .gps-hero-card {
-            width: 100%;
-          }
+          .gps-hero-actions { width: 100%; }
+          .gps-location-details { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 480px) {
-          .gps-stats {
-            grid-template-columns: 1fr;
-          }
-
-          .gps-executive-meta {
-            grid-template-columns: 1fr;
-          }
+          .gps-stats { grid-template-columns: 1fr; }
+          .gps-executive-meta { grid-template-columns: 1fr; }
         }
       `}</style>
 
@@ -542,16 +819,29 @@ function GPSPage() {
           <h1>GPS Tracking</h1>
 
           <p>
-            Executive ki verified real-time location, GPS accuracy
-            aur last update ko monitor karne ke liye ready module.
+            Executive ki latest verified location, GPS accuracy aur last update
+            ko Supabase se live monitor karein.
           </p>
         </div>
 
-        <div className="gps-hero-card">
-          <span>GPS Integration</span>
-          <strong>Not Connected</strong>
+        <div className="gps-hero-actions">
+          <div className="gps-hero-card">
+            <span>GPS Integration</span>
+            <strong>{liveCount > 0 ? `${liveCount} Live` : "Connected"}</strong>
+          </div>
+
+          <button
+            className="gps-refresh-button"
+            type="button"
+            disabled={refreshing}
+            onClick={() => void loadGPSData(true)}
+          >
+            {refreshing ? "Refreshing..." : "Refresh Locations"}
+          </button>
         </div>
       </section>
+
+      {error ? <div className="gps-error">GPS Error: {error}</div> : null}
 
       <section className="gps-stats">
         <article className="gps-stat">
@@ -561,17 +851,17 @@ function GPSPage() {
 
         <article className="gps-stat">
           <span>Live Locations</span>
-          <strong>{connectedCount}</strong>
+          <strong>{liveCount}</strong>
         </article>
 
         <article className="gps-stat">
-          <span>Waiting for GPS</span>
-          <strong>{executives.length - connectedCount}</strong>
+          <span>Recently Active</span>
+          <strong>{recentCount}</strong>
         </article>
 
         <article className="gps-stat">
-          <span>Invalid Locations</span>
-          <strong>0</strong>
+          <span>Offline / Invalid</span>
+          <strong>{offlineCount + invalidCount}</strong>
         </article>
       </section>
 
@@ -581,169 +871,209 @@ function GPSPage() {
             <div>
               <h2>Live Location Map</h2>
               <p>
-                Supabase GPS integration ke baad verified locations
-                yahan दिखाई देंगी.
+                {lastRefresh
+                  ? `Last refresh: ${lastRefresh.toLocaleTimeString("en-IN")}`
+                  : "GPS data loading..."}
               </p>
             </div>
 
-            <span className="gps-badge">
-              No live data
+            <span
+              className={`gps-badge ${
+                selectedExecutive?.status === "Live"
+                  ? "live"
+                  : selectedExecutive?.status === "Recently Active"
+                    ? "recent"
+                    : selectedExecutive?.status === "Offline"
+                      ? "offline"
+                      : "none"
+              }`}
+            >
+              {selectedExecutive?.status ?? "No location selected"}
             </span>
           </div>
 
-          <div className="gps-map-placeholder">
-            <div>
-              <div className="gps-map-icon">📍</div>
+          {loading ? (
+            <div className="gps-loading">GPS locations load ho rahi hain...</div>
+          ) : selectedExecutive &&
+            validCoordinate(
+              selectedExecutive.latitude,
+              selectedExecutive.longitude
+            ) ? (
+            <>
+              <iframe
+                className="gps-map-frame"
+                title={`${selectedExecutive.name} live location`}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                src={mapUrl(
+                  selectedExecutive.latitude as number,
+                  selectedExecutive.longitude as number
+                )}
+              />
 
-              <h3>No Live Location Connected</h3>
+              <div className="gps-location-details">
+                <div className="gps-location-box">
+                  <span>Executive</span>
+                  <strong>{selectedExecutive.name}</strong>
+                </div>
 
-              <p>
-                Map par abhi koi fake pin ya sample coordinate nahi
-                dikhaya gaya hai. Real executive GPS data connect
-                hone ke baad hi location दिखाई जाएगी.
-              </p>
+                <div className="gps-location-box">
+                  <span>Coordinates</span>
+                  <strong>
+                    {selectedExecutive.latitude?.toFixed(6)},{" "}
+                    {selectedExecutive.longitude?.toFixed(6)}
+                  </strong>
+                </div>
 
-              <div className="gps-warning">
-                Wrong location avoid karne ke liye latitude,
-                longitude, GPS accuracy aur latest timestamp verify
-                kiya jayega.
+                <div className="gps-location-box">
+                  <span>Accuracy</span>
+                  <strong>
+                    {selectedExecutive.accuracy !== null
+                      ? `${Math.round(selectedExecutive.accuracy)} metres`
+                      : "Not available"}
+                  </strong>
+                </div>
+
+                <div className="gps-location-box">
+                  <span>Last Update</span>
+                  <strong>
+                    {formatDateTime(selectedExecutive.lastUpdated)}
+                  </strong>
+                </div>
+              </div>
+
+              <a
+                className="gps-map-link"
+                href={googleMapsUrl(
+                  selectedExecutive.latitude as number,
+                  selectedExecutive.longitude as number
+                )}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open in Google Maps
+              </a>
+            </>
+          ) : (
+            <div className="gps-map-placeholder">
+              <div>
+                <div className="gps-map-icon">📍</div>
+                <h3>No Live Location Connected</h3>
+                <p>
+                  Executive App se GPS location save hone ke baad real map
+                  yahan automatically दिखाई देगा. Koi fake coordinate use nahi
+                  kiya gaya hai.
+                </p>
               </div>
             </div>
-          </div>
+          )}
         </article>
 
         <article className="gps-panel">
           <div className="gps-panel-head">
             <div>
               <h2>Executive GPS Status</h2>
-              <p>
-                Location connection aur device update status.
-              </p>
+              <p>Executive select karke uski location map par dekhein.</p>
             </div>
           </div>
 
           <input
             className="gps-search"
             value={search}
-            onChange={(event) =>
-              setSearch(event.target.value)
-            }
+            onChange={(event) => setSearch(event.target.value)}
             placeholder="Search executive, code, mobile, area..."
           />
 
           <div className="gps-list">
-            {filteredExecutives.length > 0 ? (
-              filteredExecutives.map((executive) => (
-                <div
-                  className="gps-executive-card"
-                  key={executive.id}
-                >
-                  <div className="gps-executive-top">
-                    <div className="gps-profile">
-                      <div className="gps-avatar">
-                        {executive.name
-                          .split(" ")
-                          .slice(0, 2)
-                          .map((part) => part[0])
-                          .join("")
-                          .toUpperCase()}
+            {loading ? (
+              <div className="gps-loading">Executives load ho rahe hain...</div>
+            ) : filteredExecutives.length > 0 ? (
+              filteredExecutives.map((executive) => {
+                const statusClass =
+                  executive.status === "Live"
+                    ? "live"
+                    : executive.status === "Recently Active"
+                      ? "recent"
+                      : executive.status === "Offline"
+                        ? "offline"
+                        : "none";
+
+                return (
+                  <button
+                    className={`gps-executive-card ${
+                      String(executive.id) === selectedId ? "selected" : ""
+                    }`}
+                    key={executive.id}
+                    type="button"
+                    onClick={() => setSelectedId(String(executive.id))}
+                  >
+                    <div className="gps-executive-top">
+                      <div className="gps-profile">
+                        <div className="gps-avatar">
+                          {executive.name
+                            .split(" ")
+                            .slice(0, 2)
+                            .map((part) => part[0])
+                            .join("")
+                            .toUpperCase()}
+                        </div>
+
+                        <div>
+                          <strong>{executive.name}</strong>
+                          <span>
+                            {executive.code} • {executive.mobile}
+                          </span>
+                        </div>
                       </div>
 
-                      <div>
-                        <strong>{executive.name}</strong>
-                        <span>
-                          {executive.code} • {executive.mobile}
-                        </span>
+                      <span className={`gps-status ${statusClass}`}>
+                        {executive.status}
+                      </span>
+                    </div>
+
+                    <div className="gps-executive-meta">
+                      <div className="gps-meta-item">
+                        <span>Area</span>
+                        <strong>{executive.area}</strong>
+                      </div>
+
+                      <div className="gps-meta-item">
+                        <span>Last Update</span>
+                        <strong>{formatDateTime(executive.lastUpdated)}</strong>
+                      </div>
+
+                      <div className="gps-meta-item">
+                        <span>GPS Accuracy</span>
+                        <strong>
+                          {executive.accuracy !== null
+                            ? `${Math.round(executive.accuracy)} metres`
+                            : "Not available"}
+                        </strong>
+                      </div>
+
+                      <div className="gps-meta-item">
+                        <span>Coordinates</span>
+                        <strong>
+                          {validCoordinate(
+                            executive.latitude,
+                            executive.longitude
+                          )
+                            ? `${executive.latitude?.toFixed(5)}, ${executive.longitude?.toFixed(5)}`
+                            : "Not available"}
+                        </strong>
                       </div>
                     </div>
-
-                    <span className="gps-status">
-                      {executive.status}
-                    </span>
-                  </div>
-
-                  <div className="gps-executive-meta">
-                    <div className="gps-meta-item">
-                      <span>Area</span>
-                      <strong>{executive.area}</strong>
-                    </div>
-
-                    <div className="gps-meta-item">
-                      <span>Last Update</span>
-                      <strong>
-                        {executive.lastUpdated ?? "No location"}
-                      </strong>
-                    </div>
-
-                    <div className="gps-meta-item">
-                      <span>GPS Accuracy</span>
-                      <strong>
-                        {executive.accuracy !== null
-                          ? `${executive.accuracy} metres`
-                          : "Not available"}
-                      </strong>
-                    </div>
-
-                    <div className="gps-meta-item">
-                      <span>Coordinates</span>
-                      <strong>
-                        {executive.latitude !== null &&
-                        executive.longitude !== null
-                          ? `${executive.latitude}, ${executive.longitude}`
-                          : "Not available"}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-              ))
+                  </button>
+                );
+              })
             ) : (
-              <div className="gps-empty">
-                No matching executive found.
-              </div>
+              <div className="gps-empty">No matching executive found.</div>
             )}
           </div>
         </article>
-      </section>
-
-      <section className="gps-panel gps-rules">
-        <div className="gps-panel-head">
-          <div>
-            <h2>Real GPS Validation Rules</h2>
-            <p>
-              Supabase connection ke waqt ye safety checks use honge.
-            </p>
-          </div>
-        </div>
-
-        <div className="gps-rule-list">
-          <article className="gps-rule">
-            <strong>Verified Coordinates</strong>
-            <p>
-              Empty, invalid aur zero coordinates map par show nahi
-              honge.
-            </p>
-          </article>
-
-          <article className="gps-rule">
-            <strong>Fresh Location Only</strong>
-            <p>
-              Purani location ko live status nahi diya jayega. Last
-              update clearly dikhaya jayega.
-            </p>
-          </article>
-
-          <article className="gps-rule">
-            <strong>GPS Accuracy Check</strong>
-            <p>
-              Location ke saath mobile GPS accuracy bhi save aur
-              verify ki jayegi.
-            </p>
-          </article>
-        </div>
       </section>
     </div>
   );
 }
 
 export default GPSPage;
-
