@@ -40,20 +40,20 @@ function BankImportPage(): React.ReactElement {
   const [missingAddressCount, setMissingAddressCount] = useState<number>(0);
   const [isImporting, setIsImporting] = useState<boolean>(false);
 
-  // Load Active Executives & Existing Cases
+  // Load Active Executives & Existing DB Cases
   useEffect(() => {
     async function loadInitialData() {
       try {
         const { data: execData } = await supabase
           .from("executives")
-          .select("id, executive_code, full_name, area")
-          .eq("status", "active");
+          .select("*")
+          .or("status.eq.active,status.eq.Active");
 
         if (execData) {
           setExecutives(
             execData.map((e: any) => ({
               id: e.id,
-              executive_code: e.executive_code || `SS00${e.id}`,
+              executive_code: e.executive_code || e.agent_code || `SS00${e.id}`,
               full_name: e.full_name || e.name || "",
               area: e.area || "",
             }))
@@ -62,19 +62,32 @@ function BankImportPage(): React.ReactElement {
 
         const { data: caseData } = await supabase
           .from("cases")
-          .select("case_no");
+          .select("case_no, case_number");
 
         if (caseData) {
-          setDbCaseNumbers(new Set(caseData.map((c: any) => String(c.case_no).trim().toLowerCase())));
+          const setOfCases = new Set<string>();
+          caseData.forEach((c: any) => {
+            if (c.case_no) setOfCases.add(String(c.case_no).trim().toLowerCase());
+            if (c.case_number) setOfCases.add(String(c.case_number).trim().toLowerCase());
+          });
+          setDbCaseNumbers(setOfCases);
         }
       } catch (err) {
-        console.error("Error loading initial data:", err);
+        console.error("Data load error:", err);
       }
     }
     loadInitialData();
   }, []);
 
-  // Safe field extractor for flexible excel formats
+  // Clean String for Flexible Matching (Strips MP, Madhya Pradesh, Road, Chouraha, etc.)
+  const cleanAreaString = (str: string): string => {
+    return str
+      .toLowerCase()
+      .replace(/madhya\s*pradesh|mp|road|street|chouraha|mandi|bajar|station/g, "")
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+  };
+
   const findValue = (rowObj: Record<string, any>, possibleKeys: string[]): string => {
     const keys = Object.keys(rowObj);
     for (const key of keys) {
@@ -86,6 +99,22 @@ function BankImportPage(): React.ReactElement {
       }
     }
     return "";
+  };
+
+  const matchExecutiveByArea = (areaStr: string, execsList: Executive[]) => {
+    const cleanTargetArea = cleanAreaString(areaStr);
+    if (!cleanTargetArea) return null;
+
+    return execsList.find((exec) => {
+      if (!exec.area) return false;
+      const cleanExecArea = cleanAreaString(exec.area);
+      if (!cleanExecArea) return false;
+
+      return (
+        cleanTargetArea.includes(cleanExecArea) ||
+        cleanExecArea.includes(cleanTargetArea)
+      );
+    });
   };
 
   function handleFileUpload(e: ChangeEvent<HTMLInputElement>) {
@@ -102,7 +131,6 @@ function BankImportPage(): React.ReactElement {
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         
-        // Read Excel as JSON Objects (Uses header names)
         const rawData: Record<string, any>[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
         if (rawData.length === 0) {
@@ -115,24 +143,18 @@ function BankImportPage(): React.ReactElement {
         let missingAddr = 0;
 
         rawData.forEach((row, index) => {
-          // Flexible key searching to match various Bank formats
           const caseNo = findValue(row, ["case", "account", "loan", "caseno", "accno"]) || `CASE-${index + 1}`;
           const customer = findValue(row, ["customer", "name", "borrower", "party"]) || "Unknown";
           const mobile = findValue(row, ["mobile", "phone", "contact", "cell"]) || "";
           const area = findValue(row, ["area", "market", "city", "location", "branch"]) || "Unassigned";
-          const address = findValue(row, ["address", "add", "location", "residence"]) || "";
+          const address = findValue(row, ["address", "add", "residence"]) || "";
 
           if (!address) missingAddr++;
 
           const isExisting = dbCaseNumbers.has(caseNo.toLowerCase());
 
-          // Match Executive by Area
-          const cleanArea = area.toLowerCase().trim();
-          const matchingExec = executives.find((exec) => {
-            if (!exec.area) return false;
-            const cleanExecArea = exec.area.toLowerCase().trim();
-            return cleanArea.includes(cleanExecArea) || cleanExecArea.includes(cleanArea);
-          });
+          // Flexible Area Executive Auto Matching
+          const matchingExec = matchExecutiveByArea(area, executives);
 
           const execCode = matchingExec ? matchingExec.executive_code : "Unassigned";
           const execName = matchingExec ? matchingExec.full_name : "Unassigned";
@@ -148,7 +170,6 @@ function BankImportPage(): React.ReactElement {
             isExisting,
           });
 
-          // Market Summary Tracking
           if (!marketMap[area]) {
             marketMap[area] = { current: 0, newCases: 0, existing: 0 };
           }
@@ -160,19 +181,13 @@ function BankImportPage(): React.ReactElement {
           }
         });
 
-        // Build Summaries
+        // Market Summaries
         const summaries: MarketSummary[] = Object.keys(marketMap).map((marketName) => {
           const stats = marketMap[marketName];
-          const cleanMarket = marketName.toLowerCase().trim();
+          const matchingExec = matchExecutiveByArea(marketName, executives);
 
-          const matchingExecs = executives.filter((exec) => {
-            if (!exec.area) return false;
-            const cleanExecArea = exec.area.toLowerCase().trim();
-            return cleanMarket.includes(cleanExecArea) || cleanExecArea.includes(cleanMarket);
-          });
-
-          const execNamesStr = matchingExecs.length > 0
-            ? matchingExecs.map(e => `${e.executive_code} ${e.full_name}`).join(", ")
+          const execNamesStr = matchingExec
+            ? `${matchingExec.executive_code} ${matchingExec.full_name}`
             : "No Active Executive";
 
           return {
@@ -189,7 +204,7 @@ function BankImportPage(): React.ReactElement {
         setMarketSummaries(summaries);
         setMissingAddressCount(missingAddr);
       } catch (err) {
-        alert("Excel File Read Error: Make sure file format is correct.");
+        alert("Excel File Read Error. Make sure file format is valid.");
         console.error(err);
       }
     };
@@ -217,7 +232,7 @@ function BankImportPage(): React.ReactElement {
           customer_name: r.customer,
           phone: r.mobile,
           area: r.area,
-          address: r.address, // Added Address insertion fix
+          address: r.address,
           assigned_executive: r.assignedExecCode !== "Unassigned" ? r.assignedExecCode : null,
           bank_name: selectedBank,
           status: "Pending"
@@ -227,9 +242,8 @@ function BankImportPage(): React.ReactElement {
 
       if (error) throw error;
 
-      alert(`Akyos CRM: Successfully imported ${newCasesCount} new cases!`);
+      alert(`Akyos CRM: ${newCasesCount} new cases successfully imported!`);
       
-      // Update local existing state
       setDbCaseNumbers(prev => new Set([...prev, ...newRecordsToInsert.map(r => r.case_no.toLowerCase())]));
       setExcelRecords([]);
       setMarketSummaries([]);
@@ -242,70 +256,74 @@ function BankImportPage(): React.ReactElement {
   }
 
   return (
-    <div className="p-6 bg-slate-50 min-h-screen font-sans">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">🏦 Bank Excel Case Import</h2>
-          <p className="text-xs text-slate-500">Powered by Akyos Development</p>
-        </div>
+    <div style={{ padding: "24px", backgroundColor: "#f8fafc", minHeight: "100vh", fontFamily: "sans-serif" }}>
+      {/* Page Title */}
+      <div style={{ marginBottom: "20px" }}>
+        <h2 style={{ fontSize: "22px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+          🏦 Bank Excel Case Import
+        </h2>
+        <p style={{ fontSize: "13px", color: "#64748b", margin: "4px 0 0 0" }}>
+          Powered by Akyos Development
+        </p>
       </div>
 
-      {/* Upload Controls */}
-      <div className="flex flex-wrap gap-4 mb-6 items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-slate-600">Select Target Bank</label>
+      {/* Control Box */}
+      <div style={{ backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px 20px", marginBottom: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)", display: "flex", flexWrap: "wrap", gap: "20px", alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <label style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Select Target Bank</label>
           <select
             value={selectedBank}
             onChange={(e) => setSelectedBank(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", backgroundColor: "#fff", fontSize: "14px", outline: "none" }}
           >
             <option value="Bank of Baroda (BOB)">Bank of Baroda (BOB)</option>
             <option value="State Bank of India (SBI)">State Bank of India (SBI)</option>
             <option value="HDFC Bank">HDFC Bank</option>
             <option value="ICICI Bank">ICICI Bank</option>
-            <option value="Kotak Mahindra Bank">Kotak Mahindra Bank</option>
           </select>
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-slate-600">Upload Excel File (.xlsx, .xls)</label>
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <label style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Upload Excel File (.xlsx, .xls)</label>
           <input
             type="file"
             accept=".xlsx, .xls"
             onChange={handleFileUpload}
-            className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+            style={{ fontSize: "13px", color: "#334155" }}
           />
         </div>
       </div>
 
-      {/* Header File Stats Card */}
+      {/* Stats Overview Box */}
       {excelRecords.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 text-sm">
+        <div style={{ backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px", marginBottom: "24px", boxShadow: "0 2px 4px rgba(0,0,0,0.04)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "16px", marginBottom: "16px" }}>
             <div>
-              <span className="text-slate-400 block text-xs">Bank:</span>
-              <span className="font-semibold text-slate-800">{selectedBank}</span>
+              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: "700" }}>Selected Bank</span>
+              <strong style={{ display: "block", fontSize: "15px", color: "#0f172a", marginTop: "2px" }}>{selectedBank}</strong>
             </div>
             <div>
-              <span className="text-slate-400 block text-xs">File:</span>
-              <span className="font-semibold text-slate-800">{fileName}</span>
+              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: "700" }}>File Name</span>
+              <strong style={{ display: "block", fontSize: "15px", color: "#0f172a", marginTop: "2px" }}>{fileName}</strong>
             </div>
             <div>
-              <span className="text-slate-400 block text-xs">Total Records:</span>
-              <span className="font-semibold text-slate-800">{totalUniqueExcelCases}</span>
+              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: "700" }}>Total Excel Records</span>
+              <strong style={{ display: "block", fontSize: "15px", color: "#0f172a", marginTop: "2px" }}>{totalUniqueExcelCases}</strong>
             </div>
             <div>
-              <span className="text-slate-400 block text-xs">Already In System:</span>
-              <span className="font-semibold text-amber-600">{alreadyExistingCount}</span>
+              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: "700" }}>Already In DB</span>
+              <strong style={{ display: "block", fontSize: "15px", color: "#d97706", marginTop: "2px" }}>{alreadyExistingCount}</strong>
             </div>
           </div>
 
-          <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+          <hr style={{ border: "none", borderTop: "1px solid #f1f5f9", margin: "16px 0" }} />
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
             <div>
-              <span className="text-lg font-bold text-blue-600">{newCasesCount} New Cases</span>
+              <span style={{ fontSize: "18px", fontWeight: "800", color: "#2563eb" }}>{newCasesCount} New Cases Ready</span>
               {missingAddressCount > 0 && (
-                <span className="ml-3 text-xs text-rose-500 font-medium">
-                  ({missingAddressCount} cases missing full address)
+                <span style={{ marginLeft: "12px", fontSize: "12px", color: "#e11d48", fontWeight: "600" }}>
+                  ({missingAddressCount} missing address)
                 </span>
               )}
             </div>
@@ -313,50 +331,58 @@ function BankImportPage(): React.ReactElement {
             <button
               onClick={handleImportNewCases}
               disabled={isImporting || newCasesCount === 0}
-              className={`px-6 py-2.5 rounded-lg text-white font-bold text-sm shadow-md transition-all ${
-                newCasesCount > 0 && !isImporting
-                  ? "bg-blue-600 hover:bg-blue-700"
-                  : "bg-slate-300 cursor-not-allowed"
-              }`}
+              style={{
+                padding: "10px 24px",
+                backgroundColor: newCasesCount > 0 && !isImporting ? "#2563eb" : "#cbd5e1",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "8px",
+                fontWeight: "700",
+                fontSize: "14px",
+                cursor: newCasesCount > 0 && !isImporting ? "pointer" : "not-allowed",
+              }}
             >
-              {isImporting ? "Processing Import..." : `Import ${newCasesCount} New Cases`}
+              {isImporting ? "Importing Data..." : `Import ${newCasesCount} New Cases`}
             </button>
           </div>
         </div>
       )}
 
-      {/* Market-wise Assignment Preview Table */}
+      {/* Market Preview Table */}
       {marketSummaries.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-          <h3 className="text-sm font-bold text-slate-800 mb-4">
+        <div style={{ backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px", boxShadow: "0 2px 4px rgba(0,0,0,0.04)" }}>
+          <h3 style={{ fontSize: "15px", fontWeight: "800", color: "#1e293b", marginBottom: "16px" }}>
             Market-wise Assignment Preview
           </h3>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500">
-                  <th className="p-3">Market / Area</th>
-                  <th className="p-3">Current Excel Count</th>
-                  <th className="p-3">New Cases</th>
-                  <th className="p-3">Already Assigned</th>
-                  <th className="p-3">Mapped Active Executive</th>
-                  <th className="p-3">Import Action</th>
+                <tr style={{ backgroundColor: "#f8fafc", borderBottom: "2px solid #e2e8f0", color: "#475569" }}>
+                  <th style={{ padding: "12px" }}>Market / Area</th>
+                  <th style={{ padding: "12px" }}>Current Excel</th>
+                  <th style={{ padding: "12px" }}>New Cases</th>
+                  <th style={{ padding: "12px" }}>Already Assigned</th>
+                  <th style={{ padding: "12px" }}>Mapped Active Executive</th>
+                  <th style={{ padding: "12px" }}>Import Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {marketSummaries.map((summary, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="p-3 font-semibold text-slate-800">{summary.area}</td>
-                    <td className="p-3 text-slate-600">{summary.currentExcelCount}</td>
-                    <td className="p-3 font-bold text-blue-600">{summary.newCasesCount}</td>
-                    <td className="p-3 text-amber-600">{summary.alreadyAssignedCount}</td>
-                    <td className={`p-3 font-medium ${summary.activeExecs === "No Active Executive" ? "text-rose-500" : "text-emerald-600"}`}>
-                      {summary.activeExecs}
-                    </td>
-                    <td className="p-3 text-slate-500">{summary.importResult}</td>
-                  </tr>
-                ))}
+              <tbody>
+                {marketSummaries.map((summary, idx) => {
+                  const isUnassigned = summary.activeExecs === "No Active Executive";
+                  return (
+                    <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <td style={{ padding: "12px", fontWeight: "700", color: "#0f172a" }}>{summary.area}</td>
+                      <td style={{ padding: "12px", color: "#334155" }}>{summary.currentExcelCount}</td>
+                      <td style={{ padding: "12px", fontWeight: "800", color: "#2563eb" }}>{summary.newCasesCount}</td>
+                      <td style={{ padding: "12px", color: "#d97706" }}>{summary.alreadyAssignedCount}</td>
+                      <td style={{ padding: "12px", fontWeight: "700", color: isUnassigned ? "#e11d48" : "#059669" }}>
+                        {summary.activeExecs}
+                      </td>
+                      <td style={{ padding: "12px", color: "#64748b" }}>{summary.importResult}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
