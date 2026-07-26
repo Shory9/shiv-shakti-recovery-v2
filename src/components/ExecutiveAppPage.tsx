@@ -10,7 +10,7 @@ type ExecutiveRow = {
   name?: string | null;
   phone?: string | null;
   mobile?: string | null;
-  area: string | null;
+  area?: string | null;
   pan?: string | null;
   joining_date?: string | null;
   salary?: number | null;
@@ -18,7 +18,7 @@ type ExecutiveRow = {
   incentive?: number | null;
   advance?: number | null;
   photo_url?: string | null;
-  status: string | null;
+  status?: string | null;
   is_online?: boolean | null;
   last_seen?: string | null;
   created_at?: string | null;
@@ -26,9 +26,9 @@ type ExecutiveRow = {
 
 type CaseRow = {
   id: number;
-  assigned_executive: string | null;
+  assigned_executive?: string | null;
   assigned_executive_id?: number | null;
-  status: string | null;
+  status?: string | null;
   customer_name?: string | null;
   phone?: string | null;
   mobile?: string | null;
@@ -135,10 +135,13 @@ function ExecutiveAppPage() {
     while (true) {
       const { data, error } = await supabase
         .from("cases")
-        .select("id,assigned_executive,assigned_executive_id,status,customer_name,phone,mobile,area,loan_amount")
+        .select("*")
         .range(from, from + PAGE_SIZE - 1);
 
-      if (error) throw error;
+      if (error) {
+        console.warn("Cases fetch error (fallback empty):", error.message);
+        break;
+      }
 
       const page = (data ?? []) as CaseRow[];
       rows.push(...page);
@@ -235,13 +238,9 @@ function ExecutiveAppPage() {
       setSelectedExecutiveId((current) =>
         current && mapped.some((item) => item.id === current) ? current : mapped[0]?.id ?? null
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error("Executive App load error:", error);
-      setMessage(
-        error instanceof Error
-          ? `Executive App load error: ${error.message}`
-          : "Executive App data load nahi hua."
-      );
+      setMessage(`Executive App load error: ${error?.message || "Data fetch fail ho gaya."}`);
     } finally {
       setLoading(false);
       setRefreshing(false);
