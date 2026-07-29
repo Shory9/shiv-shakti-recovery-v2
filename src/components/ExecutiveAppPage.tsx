@@ -4,8 +4,6 @@ import { supabase } from "../supabaseClient";
 type ExecutiveRow = {
   id: number;
   executive_code?: string | null;
-  agent_code?: string | null;
-  code?: string | null;
   full_name?: string | null;
   name?: string | null;
   phone?: string | null;
@@ -189,14 +187,14 @@ function ExecutiveAppPage() {
       }
 
       const mapped: ExecutiveCard[] = rows.map((row) => {
-        const execCode = (row.executive_code || row.agent_code || row.code || `SS${row.id}`).trim();
+        const execCode = row.executive_code?.trim() || "";
         const codeKey = execCode.toLowerCase();
 
         const assignedByCode = casesByExecCode.get(codeKey) ?? [];
         const assignedById = casesByExecId.get(Number(row.id)) ?? [];
         
         const caseMap = new Map<number, CaseRow>();
-        [...assignedByCode, ...assignedById].forEach((c) => caseMap.set(c.id, c));
+         [...assignedByCode, ...assignedById].forEach((c) => caseMap.set(c.id, c));
         const assigned = Array.from(caseMap.values());
 
         const completed = assigned.filter((item) => isCompletedStatus(item.status)).length;

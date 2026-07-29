@@ -56,7 +56,7 @@ export default function ExecutivesPage(): React.ReactElement {
       setExecutives(
         (data ?? []).map((e: any) => ({
           id: Number(e.id),
-          executive_code: e.executive_code || e.agent_code || `SS${e.id}`,
+          executive_code: e.executive_code?.trim() || "", // Strict enforcement: only use true executive_code
           full_name: e.full_name || e.name || "",
           phone: e.phone || e.mobile || "",
           area: e.area || "",
@@ -432,7 +432,7 @@ export default function ExecutivesPage(): React.ReactElement {
                       style={{ borderBottom: "1px solid #f1f5f9" }}
                     >
                       <td style={{ padding: "8px 10px", fontWeight: "700" }}>
-                        {ex.executive_code}
+                        {ex.executive_code || "N/A"}
                       </td>
 
                       <td style={{ padding: "8px 10px" }}>{ex.full_name}</td>

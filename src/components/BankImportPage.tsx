@@ -15,7 +15,7 @@ type CaseRecord = {
   mobile: string;
   area: string;
   address: string;
-  assignedExecutiveId: number | null;
+  assignedExecId: number | null;
   assignedExecCode: string;
   assignedExecName: string;
   isExisting: boolean;
@@ -54,8 +54,8 @@ function BankImportPage(): React.ReactElement {
           setExecutives(
             execData.map((e: any) => ({
               id: e.id,
-              executive_code: e.executive_code || e.agent_code || `SS00${e.id}`,
-              full_name: e.full_name || e.name || "",
+              executive_code: e.executive_code, // Strict single standard
+              full_name: e.full_name || "",
               area: e.area || "",
             }))
           );
@@ -63,13 +63,14 @@ function BankImportPage(): React.ReactElement {
 
         const { data: caseData } = await supabase
           .from("cases")
-          .select("case_no, case_number");
+          .select("case_number");
 
         if (caseData) {
           const setOfCases = new Set<string>();
           caseData.forEach((c: any) => {
-            if (c.case_no) setOfCases.add(String(c.case_no).trim().toLowerCase());
-            if (c.case_number) setOfCases.add(String(c.case_number).trim().toLowerCase());
+            if (c.case_number) {
+              setOfCases.add(String(c.case_number).trim().toLowerCase());
+            }
           });
           setDbCaseNumbers(setOfCases);
         }
@@ -102,7 +103,6 @@ function BankImportPage(): React.ReactElement {
     return "";
   };
 
-  // Explicit return type defined to avoid 'type never' inference issue
   const matchExecutiveByArea = (areaStr: string, execsList: Executive[]): Executive | null => {
     if (!areaStr || execsList.length === 0) return null;
 
@@ -122,22 +122,11 @@ function BankImportPage(): React.ReactElement {
 
       let score = 0;
 
-      // 1. Exact Match
       if (rawTarget === rawExecArea || cleanTarget === cleanExecArea) {
         score = 1000 + cleanExecArea.length;
-      }
-      // 2. Specific Substring Match
-      else if (
-        rawTarget.includes(rawExecArea) ||
-        cleanTarget.includes(cleanExecArea)
-      ) {
+      } else if (rawTarget.includes(rawExecArea) || cleanTarget.includes(cleanExecArea)) {
         score = 500 + cleanExecArea.length;
-      }
-      // 3. Broad Containment Match
-      else if (
-        rawExecArea.includes(rawTarget) ||
-        cleanExecArea.includes(cleanTarget)
-      ) {
+      } else if (rawExecArea.includes(rawTarget) || cleanExecArea.includes(cleanTarget)) {
         score = 100 + cleanExecArea.length;
       }
 
@@ -185,8 +174,6 @@ function BankImportPage(): React.ReactElement {
           if (!address) missingAddr++;
 
           const isExisting = dbCaseNumbers.has(caseNo.toLowerCase());
-
-          // Safely resolve type
           const matchingExec: Executive | null = matchExecutiveByArea(area, executives);
 
           const execCode = matchingExec ? matchingExec.executive_code : "Unassigned";
@@ -198,7 +185,7 @@ function BankImportPage(): React.ReactElement {
             mobile,
             area,
             address,
-            assignedExecutiveId: matchingExec ? matchingExec.id : null,
+            assignedExecId: matchingExec ? matchingExec.id : null,
             assignedExecCode: execCode,
             assignedExecName: execName,
             isExisting,
@@ -215,7 +202,6 @@ function BankImportPage(): React.ReactElement {
           }
         });
 
-        // Market Summaries
         const summaries: MarketSummary[] = Object.keys(marketMap).map((marketName) => {
           const stats = marketMap[marketName];
           const matchingExec: Executive | null = matchExecutiveByArea(marketName, executives);
@@ -262,14 +248,13 @@ function BankImportPage(): React.ReactElement {
       const newRecordsToInsert = excelRecords
         .filter(r => !r.isExisting)
         .map(r => ({
-          case_no: r.caseNo,
+          case_number: r.caseNo,
           customer_name: r.customer,
-          phone: r.mobile,
-          area: r.area,
-          address: r.address,
-          assigned_executive_id: r.assignedExecutiveId,
-          bank_name: selectedBank,
-          status: "Pending"
+          mobile: r.mobile || null,
+          area: r.area || null,
+          address: r.address || null,
+          assigned_executive_id: r.assignedExecId,
+          status: "pending"
         }));
 
       const { error } = await supabase.from("cases").insert(newRecordsToInsert);
@@ -278,7 +263,7 @@ function BankImportPage(): React.ReactElement {
 
       alert(`Akyos CRM: ${newCasesCount} new cases successfully imported!`);
       
-      setDbCaseNumbers(prev => new Set([...prev, ...newRecordsToInsert.map(r => r.case_no.toLowerCase())]));
+      setDbCaseNumbers(prev => new Set([...prev, ...newRecordsToInsert.map(r => r.case_number.toLowerCase())]));
       setExcelRecords([]);
       setMarketSummaries([]);
       setFileName("");
@@ -291,7 +276,6 @@ function BankImportPage(): React.ReactElement {
 
   return (
     <div style={{ padding: "24px", backgroundColor: "#f8fafc", minHeight: "100vh", fontFamily: "sans-serif" }}>
-      {/* Page Header */}
       <div style={{ marginBottom: "20px" }}>
         <h2 style={{ fontSize: "22px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
           🏦 Bank Excel Case Import
@@ -301,10 +285,11 @@ function BankImportPage(): React.ReactElement {
         </p>
       </div>
 
-      {/* Upload Controls */}
       <div style={{ backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px 20px", marginBottom: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)", display: "flex", flexWrap: "wrap", gap: "20px", alignItems: "center" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-          <label style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Select Target Bank</label>
+          <label style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>
+            Select Target Bank (Preview)
+          </label>
           <select
             value={selectedBank}
             onChange={(e) => setSelectedBank(e.target.value)}
@@ -328,7 +313,6 @@ function BankImportPage(): React.ReactElement {
         </div>
       </div>
 
-      {/* Summary Card */}
       {excelRecords.length > 0 && (
         <div style={{ backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px", marginBottom: "24px", boxShadow: "0 2px 4px rgba(0,0,0,0.04)" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "16px", marginBottom: "16px" }}>
@@ -382,7 +366,6 @@ function BankImportPage(): React.ReactElement {
         </div>
       )}
 
-      {/* Market Preview Table */}
       {marketSummaries.length > 0 && (
         <div style={{ backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px", boxShadow: "0 2px 4px rgba(0,0,0,0.04)" }}>
           <h3 style={{ fontSize: "15px", fontWeight: "800", color: "#1e293b", marginBottom: "16px" }}>

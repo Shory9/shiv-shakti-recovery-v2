@@ -210,7 +210,9 @@ export default function MobileExecutiveApp() {
         return;
       }
 
-      const generatedCode = `SS${Date.now().toString().slice(-6)}`;
+      // Sequential Code Generation: SS001, SS002, SS003...
+      const nextId = (existing?.length || 0) + 1;
+      const generatedCode = `SS${String(nextId).padStart(3, "0")}`;
 
       const { error } = await supabase
         .from("executives")
@@ -226,7 +228,7 @@ export default function MobileExecutiveApp() {
       if (error) throw error;
 
       const pendingExecutive: ExecutiveRow = {
-        id: 0,
+        id: nextId,
         executive_code: generatedCode,
         full_name: name,
         phone,
@@ -242,25 +244,7 @@ export default function MobileExecutiveApp() {
       setMessage(`Registration successful. Aapka code ${generatedCode} hai.`);
     } catch (error: unknown) {
       console.error("REGISTER ERROR:", error);
-
-      const registerError =
-        typeof error === "object" && error !== null
-          ? (error as {
-              message?: string;
-              details?: string;
-              hint?: string;
-              code?: string;
-            })
-          : null;
-
-      const errorMessage =
-        registerError?.message ||
-        registerError?.details ||
-        registerError?.hint ||
-        (registerError?.code ? `Error code: ${registerError.code}` : "") ||
-        String(error || "Registration fail ho gaya.");
-
-      setMessage(errorMessage);
+      setMessage(error instanceof Error ? error.message : "Registration fail ho gaya.");
     } finally {
       setLoading(false);
     }
@@ -595,7 +579,6 @@ const styles: Record<string, React.CSSProperties> = {
   remarksBox: { marginTop: 14, padding: 16, borderRadius: 14, background: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,.05)" },
   detailActions: { display: "grid", gap: 10, marginTop: 16, paddingBottom: 24 },
   callButton: { minHeight: 50, border: 0, borderRadius: 12, background: "#2563eb", color: "#fff", fontWeight: 800 },
-  actionRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginTop: 14 },
   actionButton: { border: 0, borderRadius: 10, padding: 11, background: "#fef3c7", color: "#92400e", fontWeight: 800 },
   doneButton: { border: 0, borderRadius: 10, padding: 11, background: "#dcfce7", color: "#166534", fontWeight: 800 },
 };

@@ -91,10 +91,8 @@ function DashboardPage() {
       const totalCasesCount = totalCasesResult.count ?? 0;
       const assignedCount = assignedCasesResult.count ?? 0;
 
-      // Safe fallback for unassigned cases
       const unassignedCount = Math.max(0, totalCasesCount - assignedCount);
 
-      // Standardizing recent cases records
       const formattedRecentCases = ((recentResult.data ?? []) as any[]).map(
         (c) => ({
           id: c.id,

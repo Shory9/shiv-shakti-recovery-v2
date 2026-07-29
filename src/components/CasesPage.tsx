@@ -108,7 +108,7 @@ function CasesPage() {
     status: "Pending",
   });
 
-  // Map for display names (Supports both code and ID lookups)
+  // Map for display names (Strict single executive_code standard)
   const executiveNameMap = useMemo(() => {
     const map = new Map<string, string>();
     executives.forEach((item) => {
@@ -116,12 +116,13 @@ function CasesPage() {
         item.full_name?.trim() ||
         item.name?.trim() ||
         item.executive_name?.trim() ||
-        `Executive ${item.id}`;
+        "Unknown Executive";
 
-      const code = item.executive_code?.trim() || `SS00${item.id}`;
-      
-      map.set(code.toLowerCase(), `${code} - ${name}`);
-      map.set(String(item.id), `${code} - ${name}`);
+      const code = item.executive_code?.trim() || "";
+      if (code) {
+        map.set(code.toLowerCase(), `${code} - ${name}`);
+        map.set(String(item.id), `${code} - ${name}`);
+      }
     });
     return map;
   }, [executives]);
@@ -160,10 +161,12 @@ function CasesPage() {
     const activeExecutives = executiveRows ?? executives;
     const nameMap = new Map<string, string>();
     activeExecutives.forEach((item) => {
-      const name = item.full_name?.trim() || item.name?.trim() || `Executive ${item.id}`;
-      const code = item.executive_code?.trim() || `SS00${item.id}`;
-      nameMap.set(code.toLowerCase(), `${code} ${name}`);
-      nameMap.set(String(item.id), `${code} ${name}`);
+      const name = item.full_name?.trim() || item.name?.trim() || "Unknown Executive";
+      const code = item.executive_code?.trim() || "";
+      if (code) {
+        nameMap.set(code.toLowerCase(), `${code} ${name}`);
+        nameMap.set(String(item.id), `${code} ${name}`);
+      }
     });
 
     const mapped: CaseItem[] = rows.map((item) => {
@@ -420,7 +423,7 @@ function CasesPage() {
         <div className="cases-field"><label>Mobile</label><input className="cases-input" value={editForm.mobile} onChange={(event) => setEditForm((current) => ({ ...current, mobile: event.target.value }))} /></div>
         <div className="cases-field"><label>Bank</label><input className="cases-input" value={editForm.bank} onChange={(event) => setEditForm((current) => ({ ...current, bank: event.target.value }))} /></div>
         <div className="cases-field"><label>Area</label><input className="cases-input" value={editForm.area} onChange={(event) => setEditForm((current) => ({ ...current, area: event.target.value }))} /></div>
-        <div className="cases-field"><label>Assigned Executive</label><select className="cases-select" value={editForm.executiveCode} onChange={(event) => setEditForm((current) => ({ ...current, executiveCode: event.target.value }))}><option value="">Unassigned</option>{executives.map((item) => { const code = item.executive_code || `SS00${item.id}`; return <option key={String(item.id)} value={code}>{code} - {item.full_name || item.name || `Executive ${item.id}`}</option>; })}</select></div>
+        <div className="cases-field"><label>Assigned Executive</label><select className="cases-select" value={editForm.executiveCode} onChange={(event) => setEditForm((current) => ({ ...current, executiveCode: event.target.value }))}><option value="">Unassigned</option>{executives.map((item) => { const code = item.executive_code || ""; if (!code) return null; return <option key={String(item.id)} value={code}>{code} - {item.full_name || item.name || "Unknown Executive"}</option>; })}</select></div>
         <div className="cases-field"><label>Outstanding Amount</label><input type="number" min="0" step="0.01" className="cases-input" value={editForm.amount} onChange={(event) => setEditForm((current) => ({ ...current, amount: event.target.value }))} /></div>
         <div className="cases-field"><label>Status</label><select className="cases-select" value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as CaseStatus }))}>{statusOptions.filter((item) => item !== "All").map((item) => <option key={item}>{item}</option>)}</select></div>
       </div><div className="cases-modal-actions"><button disabled={saving} onClick={() => setEditCase(null)}>Cancel</button><button className="save" disabled={saving || !editForm.customer.trim()} onClick={() => void saveCase()}>{saving ? "Saving..." : "Save Changes"}</button></div></div></div>}
