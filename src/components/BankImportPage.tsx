@@ -15,6 +15,7 @@ type CaseRecord = {
   mobile: string;
   area: string;
   address: string;
+  assignedExecutiveId: number | null;
   assignedExecCode: string;
   assignedExecName: string;
   isExisting: boolean;
@@ -197,6 +198,7 @@ function BankImportPage(): React.ReactElement {
             mobile,
             area,
             address,
+            assignedExecutiveId: matchingExec ? matchingExec.id : null,
             assignedExecCode: execCode,
             assignedExecName: execName,
             isExisting,
@@ -265,7 +267,7 @@ function BankImportPage(): React.ReactElement {
           phone: r.mobile,
           area: r.area,
           address: r.address,
-          assigned_executive: r.assignedExecCode !== "Unassigned" ? r.assignedExecCode : null,
+          assigned_executive_id: r.assignedExecutiveId,
           bank_name: selectedBank,
           status: "Pending"
         }));

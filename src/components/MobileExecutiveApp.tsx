@@ -25,9 +25,19 @@ type CaseRow = {
   status?: string | null;
   assigned_executive_id?: number | null;
   assigned_executive?: string | null;
+  loan_amount?: number | null;
+  emi_amount?: number | null;
+  outstanding_amount?: number | null;
+  bank_name?: string | null;
+  branch_name?: string | null;
+  vehicle_number?: string | null;
+  vehicle_model?: string | null;
+  product_name?: string | null;
+  due_date?: string | null;
+  remarks?: string | null;
 };
 
-type Screen = "login" | "register" | "pending" | "dashboard";
+type Screen = "login" | "register" | "pending" | "dashboard" | "caseDetails";
 
 const cleanPhone = (value: string) => value.replace(/\D/g, "");
 const cleanText = (value: unknown) => String(value ?? "").trim();
@@ -49,10 +59,36 @@ function isApproved(row: ExecutiveRow) {
   return status === "active" || status === "approved" || status === "online";
 }
 
+function formatMoney(value: number | null | undefined) {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) return "Not available";
+
+  return amount.toLocaleString("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  });
+}
+
+function formatDate(value: string | null | undefined) {
+  const raw = cleanText(value);
+  if (!raw) return "Not available";
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export default function MobileExecutiveApp() {
   const [screen, setScreen] = useState<Screen>("login");
   const [executive, setExecutive] = useState<ExecutiveRow | null>(null);
   const [cases, setCases] = useState<CaseRow[]>([]);
+  const [selectedCase, setSelectedCase] = useState<CaseRow | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -246,12 +282,18 @@ export default function MobileExecutiveApp() {
 
       const code = executiveCode(row).toLowerCase();
       const assigned = ((data ?? []) as CaseRow[]).filter((item) => {
-        const idMatch = Number(item.assigned_executive_id) === Number(row.id);
-        const codeMatch = cleanText(item.assigned_executive).toLowerCase() === code;
+        const idMatch =
+          row.id > 0 &&
+          Number(item.assigned_executive_id) === Number(row.id);
+        const codeMatch =
+          cleanText(item.assigned_executive).toLowerCase() === code;
         return idMatch || codeMatch;
       });
 
       setCases(assigned);
+      setSelectedCase((current) =>
+        current ? assigned.find((item) => item.id === current.id) ?? null : null
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Cases load nahi hue.");
     } finally {
@@ -279,13 +321,43 @@ export default function MobileExecutiveApp() {
         item.id === caseId ? { ...item, status: nextStatus } : item
       )
     );
+
+    setSelectedCase((current) =>
+      current?.id === caseId ? { ...current, status: nextStatus } : current
+    );
+
     setLoading(false);
+  }
+
+  function openCaseDetails(item: CaseRow) {
+    setSelectedCase(item);
+    setMessage("");
+    setScreen("caseDetails");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function backToDashboard() {
+    setSelectedCase(null);
+    setMessage("");
+    setScreen("dashboard");
+  }
+
+  function callCustomer(item: CaseRow) {
+    const phone = cleanPhone(cleanText(item.mobile || item.phone));
+
+    if (!phone) {
+      setMessage("Customer mobile number available nahi hai.");
+      return;
+    }
+
+    window.location.href = `tel:${phone}`;
   }
 
   function logout() {
     localStorage.removeItem("ssr_mobile_executive_id");
     setExecutive(null);
     setCases([]);
+    setSelectedCase(null);
     setScreen("login");
     setMessage("");
     setLoginCode("");
@@ -399,25 +471,83 @@ export default function MobileExecutiveApp() {
               <section style={styles.caseList}>
                 {cases.map((item) => (
                   <article style={styles.caseCard} key={item.id}>
-                    <div style={styles.caseTop}>
-                      <div>
-                        <strong>{cleanText(item.customer_name) || `Case #${item.id}`}</strong>
-                        <div style={styles.caseMeta}>{cleanText(item.case_number) || `ID ${item.id}`}</div>
+                    <button
+                      type="button"
+                      style={styles.caseOpenButton}
+                      onClick={() => openCaseDetails(item)}
+                    >
+                      <div style={styles.caseTop}>
+                        <div>
+                          <strong>{cleanText(item.customer_name) || `Case #${item.id}`}</strong>
+                          <div style={styles.caseMeta}>{cleanText(item.case_number) || `ID ${item.id}`}</div>
+                        </div>
+                        <span style={styles.statusBadge}>{cleanText(item.status) || "Pending"}</span>
                       </div>
-                      <span style={styles.statusBadge}>{cleanText(item.status) || "Pending"}</span>
-                    </div>
-                    <div style={styles.caseDetails}>
-                      <div>📞 {cleanText(item.mobile || item.phone) || "No mobile"}</div>
-                      <div>📍 {cleanText(item.address || item.area) || "No address"}</div>
-                    </div>
-                    <div style={styles.actionRow}>
-                      <button style={styles.actionButton} onClick={() => void updateCaseStatus(item.id, "Visited")}>Mark Visited</button>
-                      <button style={styles.doneButton} onClick={() => void updateCaseStatus(item.id, "Completed")}>Complete</button>
-                    </div>
+                      <div style={styles.caseDetails}>
+                        <div>📞 {cleanText(item.mobile || item.phone) || "No mobile"}</div>
+                        <div>📍 {cleanText(item.address || item.area) || "No address"}</div>
+                      </div>
+                      <div style={styles.viewDetailsText}>Case details dekhein →</div>
+                    </button>
                   </article>
                 ))}
               </section>
             )}
+          </>
+        )}
+
+        {screen === "caseDetails" && executive && selectedCase && (
+          <>
+            <button type="button" style={styles.backButton} onClick={backToDashboard}>
+              ← Back to Cases
+            </button>
+
+            <section style={styles.detailHero}>
+              <div>
+                <div style={styles.detailKicker}>Case Details</div>
+                <h1 style={styles.detailTitle}>
+                  {cleanText(selectedCase.customer_name) || `Case #${selectedCase.id}`}
+                </h1>
+                <div style={styles.detailSubtitle}>
+                  {cleanText(selectedCase.case_number) || `Database ID ${selectedCase.id}`}
+                </div>
+              </div>
+              <span style={styles.detailStatus}>
+                {cleanText(selectedCase.status) || "Pending"}
+              </span>
+            </section>
+
+            <section style={styles.detailGrid}>
+              <div style={styles.detailBox}><span>Customer Mobile</span><strong>{cleanText(selectedCase.mobile || selectedCase.phone) || "Not available"}</strong></div>
+              <div style={styles.detailBox}><span>Area</span><strong>{cleanText(selectedCase.area) || "Not available"}</strong></div>
+              <div style={styles.detailBox}><span>Address</span><strong>{cleanText(selectedCase.address) || "Not available"}</strong></div>
+              <div style={styles.detailBox}><span>Bank</span><strong>{cleanText(selectedCase.bank_name) || "Not available"}</strong></div>
+              <div style={styles.detailBox}><span>Loan Amount</span><strong>{formatMoney(selectedCase.loan_amount)}</strong></div>
+              <div style={styles.detailBox}><span>Outstanding</span><strong>{formatMoney(selectedCase.outstanding_amount)}</strong></div>
+              <div style={styles.detailBox}><span>EMI Amount</span><strong>{formatMoney(selectedCase.emi_amount)}</strong></div>
+              <div style={styles.detailBox}><span>Due Date</span><strong>{formatDate(selectedCase.due_date)}</strong></div>
+              <div style={styles.detailBox}><span>Vehicle Number</span><strong>{cleanText(selectedCase.vehicle_number) || "Not available"}</strong></div>
+              <div style={styles.detailBox}><span>Vehicle / Product</span><strong>{cleanText(selectedCase.vehicle_model || selectedCase.product_name) || "Not available"}</strong></div>
+            </section>
+
+            {cleanText(selectedCase.remarks) ? (
+              <section style={styles.remarksBox}>
+                <span>Remarks</span>
+                <p>{cleanText(selectedCase.remarks)}</p>
+              </section>
+            ) : null}
+
+            <section style={styles.detailActions}>
+              <button type="button" style={styles.callButton} onClick={() => callCustomer(selectedCase)}>
+                📞 Call Customer
+              </button>
+              <button type="button" style={styles.actionButton} disabled={loading} onClick={() => void updateCaseStatus(selectedCase.id, "Visited")}>
+                Mark Visited
+              </button>
+              <button type="button" style={styles.doneButton} disabled={loading} onClick={() => void updateCaseStatus(selectedCase.id, "Completed")}>
+                Complete Case
+              </button>
+            </section>
           </>
         )}
       </div>
@@ -447,11 +577,24 @@ const styles: Record<string, React.CSSProperties> = {
   smallButton: { border: 0, borderRadius: 9, padding: "9px 12px", background: "#dbeafe", color: "#1d4ed8", fontWeight: 800 },
   empty: { padding: 30, borderRadius: 16, background: "#fff", textAlign: "center", color: "#64748b" },
   caseList: { display: "grid", gap: 12 },
-  caseCard: { padding: 16, borderRadius: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,.06)" },
+  caseCard: { borderRadius: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,.06)", overflow: "hidden" },
+  caseOpenButton: { width: "100%", padding: 16, border: 0, background: "transparent", color: "inherit", textAlign: "left", cursor: "pointer" },
   caseTop: { display: "flex", justifyContent: "space-between", gap: 12 },
   caseMeta: { marginTop: 4, color: "#64748b", fontSize: 12 },
   statusBadge: { height: "fit-content", padding: "6px 9px", borderRadius: 999, background: "#eff6ff", color: "#1d4ed8", fontSize: 11, fontWeight: 800 },
   caseDetails: { display: "grid", gap: 7, marginTop: 14, color: "#475569", fontSize: 13 },
+  viewDetailsText: { marginTop: 14, color: "#2563eb", fontSize: 12, fontWeight: 800 },
+  backButton: { marginBottom: 12, padding: "10px 12px", border: 0, borderRadius: 10, background: "#dbeafe", color: "#1d4ed8", fontWeight: 800 },
+  detailHero: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14, padding: 20, borderRadius: 20, background: "linear-gradient(135deg,#07192d,#12497b)", color: "#fff" },
+  detailKicker: { fontSize: 11, fontWeight: 800, opacity: 0.75, textTransform: "uppercase", letterSpacing: ".08em" },
+  detailTitle: { margin: "7px 0 3px", fontSize: 25 },
+  detailSubtitle: { fontSize: 12, opacity: 0.78 },
+  detailStatus: { padding: "7px 10px", borderRadius: 999, background: "rgba(255,255,255,.14)", fontSize: 11, fontWeight: 800, textTransform: "capitalize" },
+  detailGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 },
+  detailBox: { padding: 14, borderRadius: 14, background: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,.05)" },
+  remarksBox: { marginTop: 14, padding: 16, borderRadius: 14, background: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,.05)" },
+  detailActions: { display: "grid", gap: 10, marginTop: 16, paddingBottom: 24 },
+  callButton: { minHeight: 50, border: 0, borderRadius: 12, background: "#2563eb", color: "#fff", fontWeight: 800 },
   actionRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginTop: 14 },
   actionButton: { border: 0, borderRadius: 10, padding: 11, background: "#fef3c7", color: "#92400e", fontWeight: 800 },
   doneButton: { border: 0, borderRadius: 10, padding: 11, background: "#dcfce7", color: "#166534", fontWeight: 800 },
