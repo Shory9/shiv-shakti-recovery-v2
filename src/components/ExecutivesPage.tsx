@@ -192,9 +192,10 @@ export default function ExecutivesPage(): React.ReactElement {
       return {
         color: "#b45309",
         backgroundColor: "#fef3c7",
-        padding: "5px 10px",
+        padding: "4px 8px",
         borderRadius: "999px",
-        fontWeight: "800",
+        fontWeight: "700",
+        fontSize: "12px",
         display: "inline-block",
         textTransform: "capitalize",
       };
@@ -204,9 +205,10 @@ export default function ExecutivesPage(): React.ReactElement {
       return {
         color: "#047857",
         backgroundColor: "#d1fae5",
-        padding: "5px 10px",
+        padding: "4px 8px",
         borderRadius: "999px",
-        fontWeight: "800",
+        fontWeight: "700",
+        fontSize: "12px",
         display: "inline-block",
         textTransform: "capitalize",
       };
@@ -215,9 +217,10 @@ export default function ExecutivesPage(): React.ReactElement {
     return {
       color: "#475569",
       backgroundColor: "#e2e8f0",
-      padding: "5px 10px",
+      padding: "4px 8px",
       borderRadius: "999px",
-      fontWeight: "800",
+      fontWeight: "700",
+      fontSize: "12px",
       display: "inline-block",
       textTransform: "capitalize",
     };
@@ -226,7 +229,7 @@ export default function ExecutivesPage(): React.ReactElement {
   return (
     <div
       style={{
-        padding: "24px",
+        padding: "20px",
         backgroundColor: "#f8fafc",
         minHeight: "100vh",
       }}
@@ -234,7 +237,7 @@ export default function ExecutivesPage(): React.ReactElement {
       <div style={{ marginBottom: "20px" }}>
         <h2
           style={{
-            fontSize: "24px",
+            fontSize: "22px",
             fontWeight: "800",
             color: "#0f172a",
           }}
@@ -242,7 +245,7 @@ export default function ExecutivesPage(): React.ReactElement {
           👨‍💼 Field Executive Management
         </h2>
 
-        <p style={{ color: "#64748b", fontSize: "14px" }}>
+        <p style={{ color: "#64748b", fontSize: "13px" }}>
           Powered by Akyos CRM V2 Architecture
         </p>
       </div>
@@ -251,17 +254,17 @@ export default function ExecutivesPage(): React.ReactElement {
       <div
         style={{
           backgroundColor: "#ffffff",
-          padding: "20px",
+          padding: "16px",
           borderRadius: "12px",
           border: "1px solid #e2e8f0",
-          marginBottom: "24px",
+          marginBottom: "20px",
         }}
       >
         <h3
           style={{
-            fontSize: "16px",
+            fontSize: "15px",
             fontWeight: "700",
-            marginBottom: "16px",
+            marginBottom: "12px",
           }}
         >
           + Add New Field Executive
@@ -269,7 +272,7 @@ export default function ExecutivesPage(): React.ReactElement {
 
         <form
           onSubmit={handleAddExecutive}
-          style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}
+          style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}
         >
           <input
             type="text"
@@ -277,10 +280,11 @@ export default function ExecutivesPage(): React.ReactElement {
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
+              padding: "8px 12px",
+              borderRadius: "6px",
               border: "1px solid #cbd5e1",
-              flex: "1 1 200px",
+              flex: "1 1 180px",
+              fontSize: "13px",
             }}
           />
 
@@ -290,10 +294,11 @@ export default function ExecutivesPage(): React.ReactElement {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
+              padding: "8px 12px",
+              borderRadius: "6px",
               border: "1px solid #cbd5e1",
-              flex: "1 1 180px",
+              flex: "1 1 140px",
+              fontSize: "13px",
             }}
           />
 
@@ -301,11 +306,12 @@ export default function ExecutivesPage(): React.ReactElement {
             value={selectedArea}
             onChange={(e) => setSelectedArea(e.target.value)}
             style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
+              padding: "8px 12px",
+              borderRadius: "6px",
               border: "1px solid #cbd5e1",
-              flex: "1 1 200px",
+              flex: "1 1 160px",
               backgroundColor: "#fff",
+              fontSize: "13px",
             }}
           >
             {PREDEFINED_AREAS.map((a) => (
@@ -322,10 +328,11 @@ export default function ExecutivesPage(): React.ReactElement {
               value={customArea}
               onChange={(e) => setCustomArea(e.target.value)}
               style={{
-                padding: "10px 14px",
-                borderRadius: "8px",
+                padding: "8px 12px",
+                borderRadius: "6px",
                 border: "1px solid #2563eb",
-                flex: "1 1 200px",
+                flex: "1 1 160px",
+                fontSize: "13px",
               }}
             />
           )}
@@ -334,10 +341,11 @@ export default function ExecutivesPage(): React.ReactElement {
             value={vehicleType}
             onChange={(e) => setVehicleType(e.target.value)}
             style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
+              padding: "8px 12px",
+              borderRadius: "6px",
               border: "1px solid #cbd5e1",
-              flex: "1 1 100px",
+              flex: "1 1 90px",
+              fontSize: "13px",
             }}
           >
             <option value="bike">Bike</option>
@@ -348,17 +356,18 @@ export default function ExecutivesPage(): React.ReactElement {
             type="submit"
             disabled={isAdding}
             style={{
-              padding: "10px 20px",
+              padding: "8px 16px",
               backgroundColor: "#2563eb",
               color: "#ffffff",
               border: "none",
-              borderRadius: "8px",
+              borderRadius: "6px",
               fontWeight: "700",
+              fontSize: "13px",
               cursor: isAdding ? "not-allowed" : "pointer",
               opacity: isAdding ? 0.7 : 1,
             }}
           >
-            {isAdding ? "Adding Executive..." : "+ Add Executive"}
+            {isAdding ? "Adding..." : "+ Add Executive"}
           </button>
         </form>
       </div>
@@ -367,48 +376,47 @@ export default function ExecutivesPage(): React.ReactElement {
       <div
         style={{
           backgroundColor: "#ffffff",
-          padding: "20px",
+          padding: "16px",
           borderRadius: "12px",
           border: "1px solid #e2e8f0",
         }}
       >
         <h3
           style={{
-            fontSize: "16px",
+            fontSize: "15px",
             fontWeight: "700",
-            marginBottom: "16px",
+            marginBottom: "12px",
           }}
         >
           Executive List ({executives.length})
         </h3>
 
         {loading ? (
-          <p>Loading executives...</p>
+          <p style={{ fontSize: "13px", color: "#64748b" }}>Loading executives...</p>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto", width: "100%" }}>
             <table
               style={{
                 width: "100%",
                 borderCollapse: "collapse",
-                fontSize: "14px",
-                minWidth: "900px",
+                fontSize: "13px",
+                textAlign: "left",
               }}
             >
               <thead>
                 <tr
                   style={{
                     backgroundColor: "#f8fafc",
-                    textAlign: "left",
                     borderBottom: "2px solid #e2e8f0",
                   }}
                 >
-                  <th style={{ padding: "10px" }}>Executive Code</th>
-                  <th style={{ padding: "10px" }}>Name</th>
-                  <th style={{ padding: "10px" }}>Phone</th>
-                  <th style={{ padding: "10px" }}>Assigned Area</th>
-                  <th style={{ padding: "10px" }}>Vehicle</th>
-                  <th style={{ padding: "10px" }}>Status</th>
-                  <th style={{ padding: "10px" }}>Actions</th>
+                  <th style={{ padding: "8px 10px" }}>Code</th>
+                  <th style={{ padding: "8px 10px" }}>Name</th>
+                  <th style={{ padding: "8px 10px" }}>Phone</th>
+                  <th style={{ padding: "8px 10px" }}>Assigned Area</th>
+                  <th style={{ padding: "8px 10px" }}>Vehicle</th>
+                  <th style={{ padding: "8px 10px" }}>Status</th>
+                  <th style={{ padding: "8px 10px", textAlign: "right" }}>Actions</th>
                 </tr>
               </thead>
 
@@ -423,17 +431,17 @@ export default function ExecutivesPage(): React.ReactElement {
                       key={ex.id}
                       style={{ borderBottom: "1px solid #f1f5f9" }}
                     >
-                      <td style={{ padding: "10px", fontWeight: "700" }}>
+                      <td style={{ padding: "8px 10px", fontWeight: "700" }}>
                         {ex.executive_code}
                       </td>
 
-                      <td style={{ padding: "10px" }}>{ex.full_name}</td>
+                      <td style={{ padding: "8px 10px" }}>{ex.full_name}</td>
 
-                      <td style={{ padding: "10px" }}>{ex.phone}</td>
+                      <td style={{ padding: "8px 10px" }}>{ex.phone}</td>
 
                       <td
                         style={{
-                          padding: "10px",
+                          padding: "8px 10px",
                           fontWeight: "600",
                           color: "#2563eb",
                         }}
@@ -443,24 +451,24 @@ export default function ExecutivesPage(): React.ReactElement {
 
                       <td
                         style={{
-                          padding: "10px",
+                          padding: "8px 10px",
                           textTransform: "capitalize",
                         }}
                       >
                         {ex.vehicle_type}
                       </td>
 
-                      <td style={{ padding: "10px" }}>
+                      <td style={{ padding: "8px 10px" }}>
                         <span style={statusStyle(ex.status)}>{ex.status}</span>
                       </td>
 
-                      <td style={{ padding: "10px" }}>
+                      <td style={{ padding: "8px 10px", textAlign: "right" }}>
                         <div
                           style={{
-                            display: "flex",
+                            display: "inline-flex",
                             alignItems: "center",
-                            gap: "8px",
-                            flexWrap: "wrap",
+                            justifyContent: "flex-end",
+                            gap: "6px",
                           }}
                         >
                           {isPending && (
@@ -469,17 +477,18 @@ export default function ExecutivesPage(): React.ReactElement {
                               disabled={isWorking}
                               onClick={() => void handleApproveExecutive(ex)}
                               style={{
-                                padding: "8px 12px",
+                                padding: "5px 10px",
                                 backgroundColor: "#16a34a",
                                 color: "#ffffff",
                                 border: "none",
-                                borderRadius: "7px",
+                                borderRadius: "5px",
                                 fontWeight: "700",
+                                fontSize: "12px",
                                 cursor: isWorking ? "not-allowed" : "pointer",
                                 opacity: isWorking ? 0.65 : 1,
                               }}
                             >
-                              {isWorking ? "Please wait..." : "Approve"}
+                              {isWorking ? "Wait..." : "Approve"}
                             </button>
                           )}
 
@@ -488,17 +497,18 @@ export default function ExecutivesPage(): React.ReactElement {
                             disabled={isWorking}
                             onClick={() => void handleDeleteExecutive(ex)}
                             style={{
-                              padding: "8px 12px",
+                              padding: "5px 10px",
                               backgroundColor: "#dc2626",
                               color: "#ffffff",
                               border: "none",
-                              borderRadius: "7px",
+                              borderRadius: "5px",
                               fontWeight: "700",
+                              fontSize: "12px",
                               cursor: isWorking ? "not-allowed" : "pointer",
                               opacity: isWorking ? 0.65 : 1,
                             }}
                           >
-                            {isWorking ? "Please wait..." : "Delete"}
+                            {isWorking ? "Wait..." : "Delete"}
                           </button>
                         </div>
                       </td>
@@ -511,7 +521,7 @@ export default function ExecutivesPage(): React.ReactElement {
                     <td
                       colSpan={7}
                       style={{
-                        padding: "24px",
+                        padding: "20px",
                         textAlign: "center",
                         color: "#64748b",
                       }}
