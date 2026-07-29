@@ -1,0 +1,8 @@
+{
+  "appId": "com.shivshakti.executive",
+  "appName": "Shiv Shakti Executive",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

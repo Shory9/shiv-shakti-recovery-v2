@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import "./App.css";
 
 import BankImportPage from "./components/BankImportPage";
@@ -9,6 +10,7 @@ import ExecutivesPage from "./components/ExecutivesPage";
 import GPSPage from "./components/GPSPage";
 import Header from "./components/Header";
 import LoginPage from "./components/LoginPage";
+import MobileExecutiveApp from "./components/MobileExecutiveApp";
 import PaymentsPage from "./components/PaymentsPage";
 import ReportsPage from "./components/ReportsPage";
 import Sidebar from "./components/Sidebar";
@@ -24,8 +26,14 @@ type Menu =
   | "Reports";
 
 function App() {
+  const isNativeApp = Capacitor.isNativePlatform();
+
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeMenu, setActiveMenu] = useState<Menu>("Dashboard");
+
+  if (isNativeApp) {
+    return <MobileExecutiveApp />;
+  }
 
   const handleLogout = () => {
     setIsLoggedIn(false);
@@ -87,4 +95,3 @@ function App() {
 }
 
 export default App;
-
