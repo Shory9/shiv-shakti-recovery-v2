@@ -309,6 +309,10 @@ export default function MobileExecutiveApp() {
     setMessage("");
 
     try {
+      const executiveId = Number(row.id);
+      const code = executiveCode(row).toLowerCase();
+      const areaMatch = cleanText(row.area).toLowerCase();
+
       const { data, error } = await supabase
         .from("cases")
         .select("*")
@@ -316,27 +320,21 @@ export default function MobileExecutiveApp() {
 
       if (error) throw error;
 
-      const code = executiveCode(row).toLowerCase();
-      const areaMatch = cleanText(row.area).toLowerCase();
-
-      // Proper Matching Logic for Assigned Cases
+      // STRICT FILTER: Sirf executive ke khud ke ya area ke cases aayenge
       const assigned = ((data ?? []) as CaseRow[]).filter((item) => {
-        const idMatch =
-          row.id > 0 &&
-          Number(item.assigned_executive_id) === Number(row.id);
-        
-        const codeMatch =
-          cleanText(item.assigned_executive).toLowerCase() === code ||
-          cleanText(item.executive_code).toLowerCase() === code;
+        const itemExecId = Number(item.assigned_executive_id);
+        const itemExecCode = cleanText(item.assigned_executive || item.executive_code).toLowerCase();
+        const itemArea = cleanText(item.area).toLowerCase();
 
-        const areaWiseMatch =
-          areaMatch && cleanText(item.area).toLowerCase() === areaMatch;
+        const isIdMatched = executiveId > 0 && itemExecId === executiveId;
+        const isCodeMatched = code && itemExecCode === code;
+        const isAreaMatched = areaMatch && itemArea === areaMatch;
 
-        return idMatch || codeMatch || areaWiseMatch;
+        return isIdMatched || isCodeMatched || isAreaMatched;
       });
 
-      // Agar filter se ek bhi case na mile toh fallback karke saare dikha sakte hain ya assigned rakhein
-      setCases(assigned.length > 0 ? assigned : (data ?? []) as CaseRow[]);
+      // NO FALLBACK TO ALL CASES: Jo filter hua wahi set hoga
+      setCases(assigned);
       setSelectedCase((current) =>
         current ? assigned.find((item) => item.id === current.id) ?? null : null
       );
@@ -637,7 +635,6 @@ export default function MobileExecutiveApp() {
           </div>
         )}
 
-        {/* Bottom Navigation Bar for Executive Mobile App */}
         {executive && screen !== "login" && screen !== "register" && screen !== "pending" && (
           <nav style={styles.bottomNav}>
             <button style={{ ...styles.navItem, color: screen === "dashboard" ? "#0d3b66" : "#64748b" }} onClick={() => setScreen("dashboard")}>

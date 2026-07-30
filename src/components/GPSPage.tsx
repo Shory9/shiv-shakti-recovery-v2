@@ -94,18 +94,6 @@ function formatDateTime(value: string | null) {
   });
 }
 
-function getExecutiveId(row: RawRow) {
-  return textValue(row, ["executive_id", "employee_id", "agent_id", "user_id"]);
-}
-
-function getGpsTimestamp(row: RawRow) {
-  return textValue(
-    row,
-    ["recorded_at", "captured_at", "location_time", "updated_at", "created_at"],
-    ""
-  );
-}
-
 function mapUrl(latitude: number, longitude: number) {
   const delta = 0.012;
   const left = longitude - delta;
@@ -140,6 +128,7 @@ function GPSPage() {
       const pageSize = 1000;
       let from = 0;
 
+      // Sirf executive table se data layenge kyunki mobile app wahin update kar rahi hai
       while (true) {
         const { data, error: executivesError } = await supabase
           .from("executive")
@@ -155,83 +144,21 @@ function GPSPage() {
         from += pageSize;
       }
 
-      const { data: gpsData, error: gpsError } = await supabase
-        .from("gps_locations")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(5000);
-
-      if (gpsError) throw gpsError;
-
-      const latestByExecutive = new Map<string, RawRow>();
-
-      for (const location of (gpsData ?? []) as RawRow[]) {
-        const executiveId = getExecutiveId(location);
-        if (!executiveId) continue;
-
-        const existing = latestByExecutive.get(executiveId);
-        if (!existing) {
-          latestByExecutive.set(executiveId, location);
-          continue;
-        }
-
-        const existingTime = new Date(getGpsTimestamp(existing)).getTime();
-        const currentTime = new Date(getGpsTimestamp(location)).getTime();
-
-        if (
-          Number.isFinite(currentTime) &&
-          (!Number.isFinite(existingTime) || currentTime > existingTime)
-        ) {
-          latestByExecutive.set(executiveId, location);
-        }
-      }
-
       const merged = allExecutives.map((executive, index) => {
         const id = textValue(executive, ["id"], String(index + 1));
-        const latestLocation = latestByExecutive.get(id);
-
-        const latitude = latestLocation
-          ? numberValue(latestLocation, ["latitude", "lat"])
-          : null;
-
-        const longitude = latestLocation
-          ? numberValue(latestLocation, ["longitude", "lng", "lon"])
-          : null;
-
-        const accuracy = latestLocation
-          ? numberValue(latestLocation, [
-              "accuracy",
-              "accuracy_metres",
-              "accuracy_meters",
-            ])
-          : null;
-
-        const lastUpdated = latestLocation
-          ? getGpsTimestamp(latestLocation) || null
-          : null;
+        
+        // Exact column names from your mobile app Supabase setup
+        const latitude = numberValue(executive, ["latitude"]);
+        const longitude = numberValue(executive, ["longitude"]);
+        const accuracy = null; 
+        const lastUpdated = textValue(executive, ["last_location_time"], null);
 
         return {
           id,
-          name: textValue(
-            executive,
-            ["name", "full_name", "executive_name"],
-            "Unnamed Executive"
-          ),
-          code: textValue(
-            executive,
-            ["code", "executive_code", "employee_code"],
-            `EXE-${String(index + 1).padStart(3, "0")}`
-          ),
-          mobile: textValue(
-            executive,
-            ["mobile", "phone", "mobile_number", "phone_number"],
-            "Not available"
-          ),
-          area: textValue(
-            executive,
-            ["area", "assigned_area", "location"],
-            "Not assigned"
-          ),
+          name: textValue(executive, ["full_name", "name", "executive_name"], "Unnamed Executive"),
+          code: textValue(executive, ["executive_code", "agent_code"], `EXE-${String(index + 1).padStart(3, "0")}`),
+          mobile: textValue(executive, ["phone", "mobile"], "Not available"),
+          area: textValue(executive, ["area", "assigned_area"], "Not assigned"),
           latitude,
           longitude,
           accuracy,
@@ -289,14 +216,16 @@ function GPSPage() {
       void loadGPSData(true);
     }, AUTO_REFRESH_MS);
 
+    // Yahan maine 'gps_locations' ko change karke 'executive' table kar diya hai
+    // Taaki admin panel live sync hota rahe
     const channel = supabase
       .channel("admin-gps-tracking")
       .on(
         "postgres_changes",
         {
-          event: "*",
+          event: "UPDATE",
           schema: "public",
-          table: "gps_locations",
+          table: "executive",
         },
         () => {
           void loadGPSData(true);
