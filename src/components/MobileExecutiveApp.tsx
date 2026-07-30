@@ -25,6 +25,7 @@ type CaseRow = {
   status?: string | null;
   assigned_executive_id?: number | null;
   assigned_executive?: string | null;
+  executive_code?: string | null;
   loan_amount?: number | null;
   emi_amount?: number | null;
   outstanding_amount?: number | null;
@@ -210,7 +211,6 @@ export default function MobileExecutiveApp() {
         return;
       }
 
-      // Sequential Code Generation: SS001, SS002, SS003...
       const nextId = (existing?.length || 0) + 1;
       const generatedCode = `SS${String(nextId).padStart(3, "0")}`;
 
@@ -238,8 +238,6 @@ export default function MobileExecutiveApp() {
       };
 
       setExecutive(pendingExecutive);
-      localStorage.setItem("ssr_mobile_executive_code", generatedCode);
-      localStorage.setItem("ssr_mobile_executive_phone", phone);
       setScreen("pending");
       setMessage(`Registration successful. Aapka code ${generatedCode} hai.`);
     } catch (error: unknown) {
@@ -265,13 +263,21 @@ export default function MobileExecutiveApp() {
       if (error) throw error;
 
       const code = executiveCode(row).toLowerCase();
+      const areaMatch = cleanText(row.area).toLowerCase();
+
       const assigned = ((data ?? []) as CaseRow[]).filter((item) => {
         const idMatch =
           row.id > 0 &&
           Number(item.assigned_executive_id) === Number(row.id);
+        
         const codeMatch =
-          cleanText(item.assigned_executive).toLowerCase() === code;
-        return idMatch || codeMatch;
+          cleanText(item.assigned_executive).toLowerCase() === code ||
+          cleanText(item.executive_code).toLowerCase() === code;
+
+        const areaWiseMatch =
+          areaMatch && cleanText(item.area).toLowerCase() === areaMatch;
+
+        return idMatch || codeMatch || areaWiseMatch;
       });
 
       setCases(assigned);
