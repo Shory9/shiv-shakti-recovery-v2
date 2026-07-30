@@ -2,7 +2,7 @@ type Menu =
   | "Dashboard"
   | "Bank Import"
   | "Cases"
-  | "Executives"
+  | "Executive"
   | "Executive App"
   | "GPS Tracking"
   | "Payments"
@@ -17,7 +17,7 @@ const menuItems: { name: Menu; icon: string }[] = [
   { name: "Dashboard", icon: "🏠" },
   { name: "Bank Import", icon: "📤" },
   { name: "Cases", icon: "📁" },
-  { name: "Executives", icon: "👨‍💼" },
+  { name: "Executive", icon: "👨‍💼" },
   { name: "Executive App", icon: "📱" },
   { name: "GPS Tracking", icon: "📍" },
   { name: "Payments", icon: "💰" },
@@ -56,4 +56,3 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
 }
 
 export default Sidebar;
-

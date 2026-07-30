@@ -112,7 +112,7 @@ export default function MobileExecutiveApp() {
     setMessage("");
 
     const { data, error } = await supabase
-      .from("executives")
+      .from("executive")
       .select("*")
       .eq("id", id)
       .maybeSingle();
@@ -151,7 +151,7 @@ export default function MobileExecutiveApp() {
     setMessage("");
 
     try {
-      const { data, error } = await supabase.from("executives").select("*");
+      const { data, error } = await supabase.from("executive").select("*");
       if (error) throw error;
 
       const match = ((data ?? []) as ExecutiveRow[]).find((row) => {
@@ -196,7 +196,7 @@ export default function MobileExecutiveApp() {
 
     try {
       const { data: existing, error: existingError } = await supabase
-        .from("executives")
+        .from("executive")
         .select("*");
 
       if (existingError) throw existingError;
@@ -215,7 +215,7 @@ export default function MobileExecutiveApp() {
       const generatedCode = `SS${String(nextId).padStart(3, "0")}`;
 
       const { error } = await supabase
-        .from("executives")
+        .from("executive")
         .insert({
           executive_code: generatedCode,
           full_name: name,

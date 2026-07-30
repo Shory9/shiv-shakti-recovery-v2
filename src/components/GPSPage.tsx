@@ -142,7 +142,7 @@ function GPSPage() {
 
       while (true) {
         const { data, error: executivesError } = await supabase
-          .from("executives")
+          .from("executive")
           .select("*")
           .range(from, from + pageSize - 1);
 
@@ -961,7 +961,7 @@ function GPSPage() {
                 <h3>No Live Location Connected</h3>
                 <p>
                   Executive App se GPS location save hone ke baad real map
-                  yahan automatically दिखाई देगा. Koi fake coordinate use nahi
+                  yahan automatically dikhega. Koi fake coordinate use nahi
                   kiya gaya hai.
                 </p>
               </div>

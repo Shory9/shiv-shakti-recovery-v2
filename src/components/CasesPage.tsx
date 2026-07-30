@@ -129,7 +129,7 @@ function CasesPage() {
 
   async function loadExecutives() {
     const { data, error: executiveError } = await supabase
-      .from("executives")
+      .from("executive")
       .select("*")
       .order("id", { ascending: true });
 

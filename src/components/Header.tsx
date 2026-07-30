@@ -2,7 +2,7 @@ type Menu =
   | "Dashboard"
   | "Bank Import"
   | "Cases"
-  | "Executives"
+  | "Executive"
   | "Executive App"
   | "GPS Tracking"
   | "Payments"
@@ -43,4 +43,3 @@ function Header({ activeMenu, onLogout }: HeaderProps) {
 }
 
 export default Header;
-

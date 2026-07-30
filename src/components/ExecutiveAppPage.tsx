@@ -159,7 +159,7 @@ function ExecutiveAppPage() {
 
     try {
       const [executiveResult, cases] = await Promise.all([
-        supabase.from("executives").select("*").order("id", { ascending: false }),
+        supabase.from("executive").select("*").order("id", { ascending: false }),
         fetchAllCases(),
       ]);
 
@@ -252,7 +252,7 @@ function ExecutiveAppPage() {
 
     const channel = supabase
       .channel("executive-app-admin-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "executives" }, () => void loadData(true))
+      .on("postgres_changes", { event: "*", schema: "public", table: "executive" }, () => void loadData(true))
       .on("postgres_changes", { event: "*", schema: "public", table: "cases" }, () => void loadData(true))
       .subscribe();
 

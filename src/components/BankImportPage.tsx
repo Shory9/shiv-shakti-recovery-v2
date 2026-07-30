@@ -46,7 +46,7 @@ function BankImportPage(): React.ReactElement {
     async function loadInitialData() {
       try {
         const { data: execData } = await supabase
-          .from("executives")
+          .from("executive")
           .select("*")
           .or("status.eq.active,status.eq.Active");
 

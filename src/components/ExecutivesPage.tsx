@@ -47,7 +47,7 @@ export default function ExecutivesPage(): React.ReactElement {
 
     try {
       const { data, error } = await supabase
-        .from("executives")
+        .from("executive")
         .select("*")
         .order("id", { ascending: false });
 
@@ -56,7 +56,7 @@ export default function ExecutivesPage(): React.ReactElement {
       setExecutives(
         (data ?? []).map((e: any) => ({
           id: Number(e.id),
-          executive_code: e.executive_code?.trim() || "", // Strict enforcement: only use true executive_code
+          executive_code: e.executive_code?.trim() || "",
           full_name: e.full_name || e.name || "",
           phone: e.phone || e.mobile || "",
           area: e.area || "",
@@ -103,7 +103,7 @@ export default function ExecutivesPage(): React.ReactElement {
         status: "active",
       };
 
-      const { error } = await supabase.from("executives").insert([newExec]);
+      const { error } = await supabase.from("executive").insert([newExec]);
 
       if (error) throw error;
 
@@ -136,7 +136,7 @@ export default function ExecutivesPage(): React.ReactElement {
 
     try {
       const { error } = await supabase
-        .from("executives")
+        .from("executive")
         .update({ status: "active" })
         .eq("id", executive.id);
 
@@ -167,7 +167,7 @@ export default function ExecutivesPage(): React.ReactElement {
 
     try {
       const { error } = await supabase
-        .from("executives")
+        .from("executive")
         .delete()
         .eq("id", executive.id);
 

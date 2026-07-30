@@ -19,7 +19,7 @@ type Menu =
   | "Dashboard"
   | "Bank Import"
   | "Cases"
-  | "Executives"
+  | "Executive"
   | "Executive App"
   | "GPS Tracking"
   | "Payments"
@@ -51,7 +51,7 @@ function App() {
       case "Cases":
         return <CasesPage />;
 
-      case "Executives":
+      case "Executive":
         return <ExecutivesPage />;
 
       case "Executive App":

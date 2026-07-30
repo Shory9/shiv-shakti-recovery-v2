@@ -57,9 +57,9 @@ function DashboardPage() {
         assignedCasesResult,
         recentResult,
       ] = await Promise.all([
-        supabase.from("executives").select("*", { count: "exact", head: true }),
+        supabase.from("executive").select("*", { count: "exact", head: true }),
         supabase
-          .from("executives")
+          .from("executive")
           .select("*", { count: "exact", head: true })
           .or("status.eq.active,status.eq.Active"),
         supabase.from("cases").select("*", { count: "exact", head: true }),
