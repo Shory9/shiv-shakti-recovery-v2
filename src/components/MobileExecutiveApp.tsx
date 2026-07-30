@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import { supabase } from "../supabaseClient";
 
 type ExecutiveRow = {
-  id: number;
+  id: number | string;
   executive_code?: string | null;
   agent_code?: string | null;
   full_name?: string | null;
@@ -19,20 +25,27 @@ type ExecutiveRow = {
 
 type CaseRow = {
   id: number;
+  case_no?: string | null;
   case_number?: string | null;
+  account_no?: string | null;
   customer_name?: string | null;
+  customer?: string | null;
   mobile?: string | null;
   phone?: string | null;
   address?: string | null;
   area?: string | null;
   status?: string | null;
-  assigned_executive_id?: number | null;
+  assigned_executive_id?: number | string | null;
   assigned_executive?: string | null;
+  assigned_agent?: number | string | null;
+  executive_id?: number | string | null;
   executive_code?: string | null;
-  loan_amount?: number | null;
-  emi_amount?: number | null;
-  outstanding_amount?: number | null;
+  loan_amount?: number | string | null;
+  emi_amount?: number | string | null;
+  outstanding_amount?: number | string | null;
+  amount?: number | string | null;
   bank_name?: string | null;
+  bank?: string | null;
   branch_name?: string | null;
   vehicle_number?: string | null;
   vehicle_model?: string | null;
@@ -41,10 +54,20 @@ type CaseRow = {
   remarks?: string | null;
 };
 
-type Screen = "login" | "register" | "pending" | "dashboard" | "caseDetails" | "gps" | "payments" | "profile";
+type Screen =
+  | "login"
+  | "register"
+  | "pending"
+  | "dashboard"
+  | "caseDetails"
+  | "gps"
+  | "payments"
+  | "profile";
 
-const cleanPhone = (value: string) => value.replace(/\D/g, "");
+const CASE_BATCH_SIZE = 1000;
+
 const cleanText = (value: unknown) => String(value ?? "").trim();
+const cleanPhone = (value: unknown) => cleanText(value).replace(/\D/g, "");
 
 function executiveCode(row: ExecutiveRow) {
   return cleanText(row.executive_code || row.agent_code || `SS${row.id}`);
@@ -55,7 +78,7 @@ function executiveName(row: ExecutiveRow) {
 }
 
 function executivePhone(row: ExecutiveRow) {
-  return cleanPhone(cleanText(row.phone || row.mobile));
+  return cleanPhone(row.phone || row.mobile);
 }
 
 function isApproved(row: ExecutiveRow) {
@@ -63,9 +86,22 @@ function isApproved(row: ExecutiveRow) {
   return status === "active" || status === "approved" || status === "online";
 }
 
-function formatMoney(value: number | null | undefined) {
-  const amount = Number(value ?? 0);
-  if (!Number.isFinite(amount) || amount <= 0) return "Not available";
+function caseNumber(row: CaseRow) {
+  return cleanText(row.case_no || row.case_number || row.account_no || `ID ${row.id}`);
+}
+
+function customerName(row: CaseRow) {
+  return cleanText(row.customer_name || row.customer || `Case #${row.id}`);
+}
+
+function toNumber(value: unknown) {
+  const parsed = Number(cleanText(value).replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatMoney(value: unknown) {
+  const amount = toNumber(value);
+  if (amount <= 0) return "Not available";
 
   return amount.toLocaleString("en-IN", {
     style: "currency",
@@ -74,7 +110,7 @@ function formatMoney(value: number | null | undefined) {
   });
 }
 
-function formatDate(value: string | null | undefined) {
+function formatDate(value: unknown) {
   const raw = cleanText(value);
   if (!raw) return "Not available";
 
@@ -104,20 +140,26 @@ export default function MobileExecutiveApp() {
   const [area, setArea] = useState("");
   const [vehicleType, setVehicleType] = useState("bike");
 
-  // GPS Live State
-  const [currentCoords, setCurrentCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [currentCoords, setCurrentCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
   const [gpsStatus, setGpsStatus] = useState("Idle");
 
   useEffect(() => {
-    const savedId = Number(localStorage.getItem("ssr_mobile_executive_id"));
-    if (Number.isFinite(savedId) && savedId > 0) {
-      void restoreSession(savedId);
-    }
+    const savedId = cleanText(localStorage.getItem("ssr_mobile_executive_id"));
+    if (savedId) void restoreSession(savedId);
   }, []);
 
-  // Real-time High-Accuracy GPS Tracker Effect
   useEffect(() => {
-    if (!executive || screen === "login" || screen === "register" || screen === "pending") return;
+    if (
+      !executive ||
+      screen === "login" ||
+      screen === "register" ||
+      screen === "pending"
+    ) {
+      return;
+    }
 
     if (!navigator.geolocation) {
       setGpsStatus("Geolocation supported nahi hai.");
@@ -130,12 +172,11 @@ export default function MobileExecutiveApp() {
       async (position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
-        setCurrentCoords({ lat, lng });
-        setGpsStatus(`Updated: ${new Date().toLocaleTimeString()}`);
 
-        // Instant database update without delay
+        setCurrentCoords({ lat, lng });
+
         try {
-          await supabase
+          const { error } = await supabase
             .from("executive")
             .update({
               latitude: lat,
@@ -143,13 +184,19 @@ export default function MobileExecutiveApp() {
               last_location_time: new Date().toISOString(),
             })
             .eq("id", executive.id);
-        } catch (err) {
-          console.error("GPS Sync Error:", err);
+
+          if (error) throw error;
+          setGpsStatus(`Updated: ${new Date().toLocaleTimeString()}`);
+        } catch (error) {
+          console.error("GPS sync error:", error);
+          setGpsStatus(
+            error instanceof Error
+              ? `GPS Sync Error: ${error.message}`
+              : "GPS location save nahi hui."
+          );
         }
       },
-      (error) => {
-        setGpsStatus(`GPS Error: ${error.message}`);
-      },
+      (error) => setGpsStatus(`GPS Error: ${error.message}`),
       {
         enableHighAccuracy: true,
         maximumAge: 0,
@@ -157,38 +204,42 @@ export default function MobileExecutiveApp() {
       }
     );
 
-    return () => {
-      navigator.geolocation.clearWatch(watchId);
-    };
+    return () => navigator.geolocation.clearWatch(watchId);
   }, [executive, screen]);
 
-  async function restoreSession(id: number) {
+  async function restoreSession(id: number | string) {
     setLoading(true);
     setMessage("");
 
-    const { data, error } = await supabase
-      .from("executive")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from("executive")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
 
-    if (error || !data) {
+      if (error) throw error;
+      if (!data) throw new Error("Executive account nahi mila.");
+
+      const row = data as ExecutiveRow;
+      setExecutive(row);
+
+      if (isApproved(row)) {
+        setScreen("dashboard");
+        await loadCases(row);
+      } else {
+        setScreen("pending");
+      }
+    } catch (error) {
       localStorage.removeItem("ssr_mobile_executive_id");
+      setExecutive(null);
+      setScreen("login");
+      setMessage(
+        error instanceof Error ? error.message : "Session restore nahi hui."
+      );
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const row = data as ExecutiveRow;
-    setExecutive(row);
-
-    if (isApproved(row)) {
-      setScreen("dashboard");
-      await loadCases(row);
-    } else {
-      setScreen("pending");
-    }
-
-    setLoading(false);
   }
 
   async function handleLogin(event: FormEvent) {
@@ -209,14 +260,13 @@ export default function MobileExecutiveApp() {
       const { data, error } = await supabase.from("executive").select("*");
       if (error) throw error;
 
-      const match = ((data ?? []) as ExecutiveRow[]).find((row) => {
-        return executiveCode(row).toLowerCase() === code && executivePhone(row) === phone;
-      });
+      const match = ((data ?? []) as ExecutiveRow[]).find(
+        (row) =>
+          executiveCode(row).toLowerCase() === code &&
+          executivePhone(row) === phone
+      );
 
-      if (!match) {
-        setMessage("Executive code ya mobile number galat hai.");
-        return;
-      }
+      if (!match) throw new Error("Executive code ya mobile number galat hai.");
 
       setExecutive(match);
       localStorage.setItem("ssr_mobile_executive_id", String(match.id));
@@ -241,7 +291,7 @@ export default function MobileExecutiveApp() {
     const name = fullName.trim();
     const phone = cleanPhone(registerPhone);
 
-    if (!name || phone.length < 10 || !area) {
+    if (!name || phone.length < 10 || !area.trim()) {
       setMessage("Name, valid mobile number aur area required hai.");
       return;
     }
@@ -256,90 +306,118 @@ export default function MobileExecutiveApp() {
 
       if (existingError) throw existingError;
 
-      const duplicate = ((existing ?? []) as ExecutiveRow[]).find(
-        (row) => executivePhone(row) === phone
-      );
+      const rows = (existing ?? []) as ExecutiveRow[];
+      const duplicate = rows.find((row) => executivePhone(row) === phone);
 
       if (duplicate) {
-        setMessage("Is mobile number se registration pehle se maujood hai.");
-        return;
+        throw new Error("Is mobile number se registration pehle se maujood hai.");
       }
 
-      const nextId = (existing?.length || 0) + 1;
-      const generatedCode = `SS${String(nextId).padStart(3, "0")}`;
+      const maxNumber = rows.reduce((max, row) => {
+        const match = executiveCode(row).match(/(\d+)$/);
+        return match ? Math.max(max, Number(match[1])) : max;
+      }, 0);
 
-      const { error } = await supabase
+      const generatedCode = `SS${String(maxNumber + 1).padStart(3, "0")}`;
+
+      const { data, error } = await supabase
         .from("executive")
         .insert({
           executive_code: generatedCode,
           full_name: name,
           phone,
-          area,
+          area: area.trim(),
           vehicle_type: vehicleType,
           status: "pending",
-        });
+        })
+        .select("*")
+        .single();
 
       if (error) throw error;
 
-      const pendingExecutive: ExecutiveRow = {
-        id: nextId,
-        executive_code: generatedCode,
-        full_name: name,
-        phone,
-        area,
-        vehicle_type: vehicleType,
-        status: "pending",
-      };
-
+      const pendingExecutive = data as ExecutiveRow;
       setExecutive(pendingExecutive);
+      localStorage.setItem(
+        "ssr_mobile_executive_id",
+        String(pendingExecutive.id)
+      );
       setScreen("pending");
       setMessage(`Registration successful. Aapka code ${generatedCode} hai.`);
-    } catch (error: unknown) {
-      console.error("REGISTER ERROR:", error);
-      setMessage(error instanceof Error ? error.message : "Registration fail ho gaya.");
+    } catch (error) {
+      console.error("Registration error:", error);
+      setMessage(
+        error instanceof Error ? error.message : "Registration fail ho gaya."
+      );
     } finally {
       setLoading(false);
     }
   }
 
-  async function loadCases(row = executive) {
+  async function loadCases(row: ExecutiveRow | null = executive) {
     if (!row) return;
 
     setLoading(true);
     setMessage("");
 
     try {
-      const executiveId = Number(row.id);
-      const code = executiveCode(row).toLowerCase();
-      const areaMatch = cleanText(row.area).toLowerCase();
+      const allCases: CaseRow[] = [];
+      let from = 0;
 
-      const { data, error } = await supabase
-        .from("cases")
-        .select("*")
-        .order("id", { ascending: false });
+      while (true) {
+        const { data, error } = await supabase
+          .from("cases")
+          .select("*")
+          .order("id", { ascending: false })
+          .range(from, from + CASE_BATCH_SIZE - 1);
 
-      if (error) throw error;
+        if (error) throw error;
 
-      // STRICT FILTER: Sirf executive ke khud ke ya area ke cases aayenge
-      const assigned = ((data ?? []) as CaseRow[]).filter((item) => {
-        const itemExecId = Number(item.assigned_executive_id);
-        const itemExecCode = cleanText(item.assigned_executive || item.executive_code).toLowerCase();
-        const itemArea = cleanText(item.area).toLowerCase();
+        const batch = (data ?? []) as CaseRow[];
+        allCases.push(...batch);
 
-        const isIdMatched = executiveId > 0 && itemExecId === executiveId;
-        const isCodeMatched = code && itemExecCode === code;
-        const isAreaMatched = areaMatch && itemArea === areaMatch;
+        if (batch.length < CASE_BATCH_SIZE) break;
+        from += CASE_BATCH_SIZE;
+      }
 
-        return isIdMatched || isCodeMatched || isAreaMatched;
+      const currentId = cleanText(row.id).toLowerCase();
+      const currentCode = executiveCode(row).toLowerCase();
+
+      const assignedCases = allCases.filter((item) => {
+        const assignedIds = [
+          item.assigned_executive_id,
+          item.executive_id,
+          item.assigned_agent,
+        ]
+          .map((value) => cleanText(value).toLowerCase())
+          .filter(Boolean);
+
+        const assignedCodes = [
+          item.assigned_executive,
+          item.executive_code,
+        ]
+          .map((value) => cleanText(value).toLowerCase())
+          .filter(Boolean);
+
+        return (
+          assignedIds.includes(currentId) ||
+          assignedCodes.includes(currentCode)
+        );
       });
 
-      // NO FALLBACK TO ALL CASES: Jo filter hua wahi set hoga
-      setCases(assigned);
+      setCases(assignedCases);
       setSelectedCase((current) =>
-        current ? assigned.find((item) => item.id === current.id) ?? null : null
+        current
+          ? assignedCases.find((item) => item.id === current.id) ?? null
+          : null
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Cases load nahi hue.");
+      console.error("Mobile cases load error:", error);
+      setCases([]);
+      setMessage(
+        error instanceof Error
+          ? `Cases load error: ${error.message}`
+          : "Cases load nahi hue."
+      );
     } finally {
       setLoading(false);
     }
@@ -349,52 +427,32 @@ export default function MobileExecutiveApp() {
     setLoading(true);
     setMessage("");
 
-    const { error } = await supabase
-      .from("cases")
-      .update({ status: nextStatus })
-      .eq("id", caseId);
+    try {
+      const { error } = await supabase
+        .from("cases")
+        .update({ status: nextStatus })
+        .eq("id", caseId);
 
-    if (error) {
-      setMessage(error.message);
+      if (error) throw error;
+
+      setCases((current) =>
+        current.map((item) =>
+          item.id === caseId ? { ...item, status: nextStatus } : item
+        )
+      );
+
+      setSelectedCase((current) =>
+        current?.id === caseId
+          ? { ...current, status: nextStatus }
+          : current
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Status update nahi hua."
+      );
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setCases((current) =>
-      current.map((item) =>
-        item.id === caseId ? { ...item, status: nextStatus } : item
-      )
-    );
-
-    setSelectedCase((current) =>
-      current?.id === caseId ? { ...current, status: nextStatus } : current
-    );
-
-    setLoading(false);
-  }
-
-  function openCaseDetails(item: CaseRow) {
-    setSelectedCase(item);
-    setMessage("");
-    setScreen("caseDetails");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function backToDashboard() {
-    setSelectedCase(null);
-    setMessage("");
-    setScreen("dashboard");
-  }
-
-  function callCustomer(item: CaseRow) {
-    const phone = cleanPhone(cleanText(item.mobile || item.phone));
-
-    if (!phone) {
-      setMessage("Customer mobile number available nahi hai.");
-      return;
-    }
-
-    window.location.href = `tel:${phone}`;
   }
 
   function logout() {
@@ -406,6 +464,15 @@ export default function MobileExecutiveApp() {
     setMessage("");
     setLoginCode("");
     setLoginPhone("");
+  }
+
+  function callCustomer(item: CaseRow) {
+    const phone = cleanPhone(item.mobile || item.phone);
+    if (!phone) {
+      setMessage("Customer mobile number available nahi hai.");
+      return;
+    }
+    window.location.href = `tel:${phone}`;
   }
 
   const pendingCount = useMemo(
@@ -428,22 +495,48 @@ export default function MobileExecutiveApp() {
           <img src="/logo.png" alt="Shiv Shakti" style={styles.logo} />
           <div>
             <strong style={{ fontSize: 18 }}>Shiv Shakti Recovery</strong>
-            <div style={{ fontSize: 12, opacity: 0.75 }}>Executive Mobile App</div>
+            <div style={{ fontSize: 12, opacity: 0.75 }}>
+              Executive Mobile App
+            </div>
           </div>
         </header>
 
-        {message ? <div style={styles.message}>{message}</div> : null}
+        {message && <div style={styles.message}>{message}</div>}
 
         {screen === "login" && (
           <section style={styles.card}>
             <h1 style={styles.title}>Executive Login</h1>
-            <p style={styles.subtext}>Executive code aur registered mobile number se login karein.</p>
+            <p style={styles.subtext}>
+              Executive code aur registered mobile number se login karein.
+            </p>
             <form onSubmit={handleLogin} style={styles.form}>
-              <input style={styles.input} value={loginCode} onChange={(event) => setLoginCode(event.target.value)} placeholder="Executive Code (SS001)" autoCapitalize="characters" />
-              <input style={styles.input} value={loginPhone} onChange={(event) => setLoginPhone(event.target.value)} placeholder="Mobile Number" inputMode="numeric" />
-              <button style={styles.primaryButton} disabled={loading}>{loading ? "Please wait..." : "Login"}</button>
+              <input
+                style={styles.input}
+                value={loginCode}
+                onChange={(event) => setLoginCode(event.target.value)}
+                placeholder="Executive Code (SS001)"
+                autoCapitalize="characters"
+              />
+              <input
+                style={styles.input}
+                value={loginPhone}
+                onChange={(event) => setLoginPhone(event.target.value)}
+                placeholder="Mobile Number"
+                inputMode="numeric"
+              />
+              <button style={styles.primaryButton} disabled={loading}>
+                {loading ? "Please wait..." : "Login"}
+              </button>
             </form>
-            <button style={styles.linkButton} onClick={() => { setMessage(""); setScreen("register"); }}>New Executive Registration</button>
+            <button
+              style={styles.linkButton}
+              onClick={() => {
+                setMessage("");
+                setScreen("register");
+              }}
+            >
+              New Executive Registration
+            </button>
           </section>
         )}
 
@@ -451,37 +544,74 @@ export default function MobileExecutiveApp() {
           <section style={styles.card}>
             <h1 style={styles.title}>Executive Registration</h1>
             <form onSubmit={handleRegister} style={styles.form}>
-              <input style={styles.input} value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Full Name" />
-              <input style={styles.input} value={registerPhone} onChange={(event) => setRegisterPhone(event.target.value)} placeholder="Mobile Number" inputMode="numeric" />
+              <input
+                style={styles.input}
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+                placeholder="Full Name"
+              />
+              <input
+                style={styles.input}
+                value={registerPhone}
+                onChange={(event) => setRegisterPhone(event.target.value)}
+                placeholder="Mobile Number"
+                inputMode="numeric"
+              />
               <input
                 style={styles.input}
                 value={area}
                 onChange={(event) => setArea(event.target.value)}
                 placeholder="Area enter karein"
               />
-              <select style={styles.input} value={vehicleType} onChange={(event) => setVehicleType(event.target.value)}>
+              <select
+                style={styles.input}
+                value={vehicleType}
+                onChange={(event) => setVehicleType(event.target.value)}
+              >
                 <option value="bike">Bike</option>
                 <option value="car">Car</option>
               </select>
-              <button style={styles.primaryButton} disabled={loading}>{loading ? "Registering..." : "Register"}</button>
+              <button style={styles.primaryButton} disabled={loading}>
+                {loading ? "Registering..." : "Register"}
+              </button>
             </form>
-            <button style={styles.linkButton} onClick={() => { setMessage(""); setScreen("login"); }}>Back to Login</button>
+            <button
+              style={styles.linkButton}
+              onClick={() => {
+                setMessage("");
+                setScreen("login");
+              }}
+            >
+              Back to Login
+            </button>
           </section>
         )}
 
         {screen === "pending" && executive && (
           <section style={styles.card}>
             <div style={{ fontSize: 54, textAlign: "center" }}>⏳</div>
-            <h1 style={{ ...styles.title, textAlign: "center" }}>Approval Pending</h1>
-            <p style={{ ...styles.subtext, textAlign: "center" }}>Admin approval ke baad aap login karke assigned cases dekh sakenge.</p>
+            <h1 style={{ ...styles.title, textAlign: "center" }}>
+              Approval Pending
+            </h1>
+            <p style={{ ...styles.subtext, textAlign: "center" }}>
+              Admin approval ke baad assigned cases dikhai denge.
+            </p>
             <div style={styles.infoBox}>
               <b>{executiveName(executive)}</b>
               <span>Code: {executiveCode(executive)}</span>
               <span>Mobile: {executivePhone(executive)}</span>
               <span>Status: {cleanText(executive.status) || "Pending"}</span>
             </div>
-            <button style={styles.primaryButton} onClick={() => void restoreSession(executive.id)} disabled={loading}>{loading ? "Checking..." : "Check Approval"}</button>
-            <button style={styles.linkButton} onClick={logout}>Logout</button>
+            <button
+              style={styles.primaryButton}
+              onClick={() => void restoreSession(executive.id)}
+              disabled={loading}
+            >
+              {loading ? "Checking..." : "Check Approval"}
+            </button>
+            <button style={styles.linkButton} onClick={logout}>
+              Logout
+            </button>
           </section>
         )}
 
@@ -490,21 +620,42 @@ export default function MobileExecutiveApp() {
             <section style={styles.profileCard}>
               <div>
                 <div style={{ fontSize: 12, opacity: 0.75 }}>Welcome</div>
-                <h1 style={{ margin: "4px 0" }}>{executiveName(executive)}</h1>
-                <div>{executiveCode(executive)} · {cleanText(executive.area)}</div>
+                <h1 style={{ margin: "4px 0" }}>
+                  {executiveName(executive)}
+                </h1>
+                <div>
+                  {executiveCode(executive)} · {cleanText(executive.area)}
+                </div>
               </div>
-              <button style={styles.logoutButton} onClick={logout}>Logout</button>
+              <button style={styles.logoutButton} onClick={logout}>
+                Logout
+              </button>
             </section>
 
             <section style={styles.statsGrid}>
-              <article style={styles.statCard}><span>Total Cases</span><strong>{cases.length}</strong></article>
-              <article style={styles.statCard}><span>Pending</span><strong>{pendingCount}</strong></article>
-              <article style={styles.statCard}><span>Completed</span><strong>{completedCount}</strong></article>
+              <article style={styles.statCard}>
+                <span>Total Cases</span>
+                <strong>{cases.length}</strong>
+              </article>
+              <article style={styles.statCard}>
+                <span>Pending</span>
+                <strong>{pendingCount}</strong>
+              </article>
+              <article style={styles.statCard}>
+                <span>Completed</span>
+                <strong>{completedCount}</strong>
+              </article>
             </section>
 
             <div style={styles.sectionHead}>
               <h2 style={{ margin: 0 }}>My Assigned Cases</h2>
-              <button style={styles.smallButton} onClick={() => void loadCases()} disabled={loading}>Refresh</button>
+              <button
+                style={styles.smallButton}
+                onClick={() => void loadCases()}
+                disabled={loading}
+              >
+                {loading ? "Loading..." : "Refresh"}
+              </button>
             </div>
 
             {loading && cases.length === 0 ? (
@@ -518,20 +669,33 @@ export default function MobileExecutiveApp() {
                     <button
                       type="button"
                       style={styles.caseOpenButton}
-                      onClick={() => openCaseDetails(item)}
+                      onClick={() => {
+                        setSelectedCase(item);
+                        setMessage("");
+                        setScreen("caseDetails");
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
                     >
                       <div style={styles.caseTop}>
                         <div>
-                          <strong>{cleanText(item.customer_name) || `Case #${item.id}`}</strong>
-                          <div style={styles.caseMeta}>{cleanText(item.case_number) || `ID ${item.id}`}</div>
+                          <strong>{customerName(item)}</strong>
+                          <div style={styles.caseMeta}>{caseNumber(item)}</div>
                         </div>
-                        <span style={styles.statusBadge}>{cleanText(item.status) || "Pending"}</span>
+                        <span style={styles.statusBadge}>
+                          {cleanText(item.status) || "Pending"}
+                        </span>
                       </div>
                       <div style={styles.caseDetails}>
-                        <div>📞 {cleanText(item.mobile || item.phone) || "No mobile"}</div>
-                        <div>📍 {cleanText(item.address || item.area) || "No address"}</div>
+                        <div>
+                          📞 {cleanText(item.mobile || item.phone) || "No mobile"}
+                        </div>
+                        <div>
+                          📍 {cleanText(item.address || item.area) || "No address"}
+                        </div>
                       </div>
-                      <div style={styles.viewDetailsText}>Case details dekhein →</div>
+                      <div style={styles.viewDetailsText}>
+                        Case details dekhein →
+                      </div>
                     </button>
                   </article>
                 ))}
@@ -544,11 +708,19 @@ export default function MobileExecutiveApp() {
           <div style={{ paddingBottom: 80 }}>
             <section style={styles.card}>
               <h1 style={styles.title}>Live GPS Tracking</h1>
-              <p style={styles.subtext}>Aapki live location admin dashboard par real-time sync ho rahi hai.</p>
+              <p style={styles.subtext}>
+                Aapki live location admin dashboard par sync ho rahi hai.
+              </p>
               <div style={styles.infoBox}>
-                <span><b>Status:</b> {gpsStatus}</span>
-                <span><b>Latitude:</b> {currentCoords?.lat ?? "Fetching..."}</span>
-                <span><b>Longitude:</b> {currentCoords?.lng ?? "Fetching..."}</span>
+                <span>
+                  <b>Status:</b> {gpsStatus}
+                </span>
+                <span>
+                  <b>Latitude:</b> {currentCoords?.lat ?? "Fetching..."}
+                </span>
+                <span>
+                  <b>Longitude:</b> {currentCoords?.lng ?? "Fetching..."}
+                </span>
               </div>
             </section>
           </div>
@@ -558,8 +730,9 @@ export default function MobileExecutiveApp() {
           <div style={{ paddingBottom: 80 }}>
             <section style={styles.card}>
               <h1 style={styles.title}>Payments & Collections</h1>
-              <p style={styles.subtext}>Din bhar ki collection entries yahan show hongi.</p>
-              <div style={styles.empty}>Jaldi hi payment history update hogi.</div>
+              <div style={styles.empty}>
+                Payment history module jaldi update hoga.
+              </div>
             </section>
           </div>
         )}
@@ -575,25 +748,33 @@ export default function MobileExecutiveApp() {
                 <span>Area: {cleanText(executive.area)}</span>
                 <span>Vehicle: {cleanText(executive.vehicle_type)}</span>
               </div>
-              <button style={styles.primaryButton} onClick={logout}>Logout</button>
+              <button style={styles.primaryButton} onClick={logout}>
+                Logout
+              </button>
             </section>
           </div>
         )}
 
         {screen === "caseDetails" && executive && selectedCase && (
           <div style={{ paddingBottom: 80 }}>
-            <button type="button" style={styles.backButton} onClick={backToDashboard}>
+            <button
+              type="button"
+              style={styles.backButton}
+              onClick={() => {
+                setSelectedCase(null);
+                setMessage("");
+                setScreen("dashboard");
+              }}
+            >
               ← Back to Cases
             </button>
 
             <section style={styles.detailHero}>
               <div>
                 <div style={styles.detailKicker}>Case Details</div>
-                <h1 style={styles.detailTitle}>
-                  {cleanText(selectedCase.customer_name) || `Case #${selectedCase.id}`}
-                </h1>
+                <h1 style={styles.detailTitle}>{customerName(selectedCase)}</h1>
                 <div style={styles.detailSubtitle}>
-                  {cleanText(selectedCase.case_number) || `Database ID ${selectedCase.id}`}
+                  {caseNumber(selectedCase)}
                 </div>
               </div>
               <span style={styles.detailStatus}>
@@ -602,102 +783,432 @@ export default function MobileExecutiveApp() {
             </section>
 
             <section style={styles.detailGrid}>
-              <div style={styles.detailBox}><span>Customer Mobile</span><strong>{cleanText(selectedCase.mobile || selectedCase.phone) || "Not available"}</strong></div>
-              <div style={styles.detailBox}><span>Area</span><strong>{cleanText(selectedCase.area) || "Not available"}</strong></div>
-              <div style={styles.detailBox}><span>Address</span><strong>{cleanText(selectedCase.address) || "Not available"}</strong></div>
-              <div style={styles.detailBox}><span>Bank</span><strong>{cleanText(selectedCase.bank_name) || "Not available"}</strong></div>
-              <div style={styles.detailBox}><span>Loan Amount</span><strong>{formatMoney(selectedCase.loan_amount)}</strong></div>
-              <div style={styles.detailBox}><span>Outstanding</span><strong>{formatMoney(selectedCase.outstanding_amount)}</strong></div>
-              <div style={styles.detailBox}><span>EMI Amount</span><strong>{formatMoney(selectedCase.emi_amount)}</strong></div>
-              <div style={styles.detailBox}><span>Due Date</span><strong>{formatDate(selectedCase.due_date)}</strong></div>
-              <div style={styles.detailBox}><span>Vehicle Number</span><strong>{cleanText(selectedCase.vehicle_number) || "Not available"}</strong></div>
-              <div style={styles.detailBox}><span>Vehicle / Product</span><strong>{cleanText(selectedCase.vehicle_model || selectedCase.product_name) || "Not available"}</strong></div>
+              <div style={styles.detailBox}>
+                <span>Customer Mobile</span>
+                <strong>
+                  {cleanText(selectedCase.mobile || selectedCase.phone) ||
+                    "Not available"}
+                </strong>
+              </div>
+              <div style={styles.detailBox}>
+                <span>Area</span>
+                <strong>{cleanText(selectedCase.area) || "Not available"}</strong>
+              </div>
+              <div style={styles.detailBox}>
+                <span>Address</span>
+                <strong>
+                  {cleanText(selectedCase.address) || "Not available"}
+                </strong>
+              </div>
+              <div style={styles.detailBox}>
+                <span>Bank</span>
+                <strong>
+                  {cleanText(selectedCase.bank_name || selectedCase.bank) ||
+                    "Not available"}
+                </strong>
+              </div>
+              <div style={styles.detailBox}>
+                <span>Loan Amount</span>
+                <strong>{formatMoney(selectedCase.loan_amount)}</strong>
+              </div>
+              <div style={styles.detailBox}>
+                <span>Outstanding</span>
+                <strong>
+                  {formatMoney(
+                    selectedCase.outstanding_amount || selectedCase.amount
+                  )}
+                </strong>
+              </div>
+              <div style={styles.detailBox}>
+                <span>EMI Amount</span>
+                <strong>{formatMoney(selectedCase.emi_amount)}</strong>
+              </div>
+              <div style={styles.detailBox}>
+                <span>Due Date</span>
+                <strong>{formatDate(selectedCase.due_date)}</strong>
+              </div>
+              <div style={styles.detailBox}>
+                <span>Vehicle Number</span>
+                <strong>
+                  {cleanText(selectedCase.vehicle_number) || "Not available"}
+                </strong>
+              </div>
+              <div style={styles.detailBox}>
+                <span>Vehicle / Product</span>
+                <strong>
+                  {cleanText(
+                    selectedCase.vehicle_model || selectedCase.product_name
+                  ) || "Not available"}
+                </strong>
+              </div>
             </section>
 
-            {cleanText(selectedCase.remarks) ? (
+            {cleanText(selectedCase.remarks) && (
               <section style={styles.remarksBox}>
                 <span>Remarks</span>
                 <p>{cleanText(selectedCase.remarks)}</p>
               </section>
-            ) : null}
+            )}
 
             <section style={styles.detailActions}>
-              <button type="button" style={styles.callButton} onClick={() => callCustomer(selectedCase)}>
+              <button
+                type="button"
+                style={styles.callButton}
+                onClick={() => callCustomer(selectedCase)}
+              >
                 📞 Call Customer
               </button>
-              <button type="button" style={styles.actionButton} disabled={loading} onClick={() => void updateCaseStatus(selectedCase.id, "Visited")}>
+              <button
+                type="button"
+                style={styles.actionButton}
+                disabled={loading}
+                onClick={() =>
+                  void updateCaseStatus(selectedCase.id, "Visited")
+                }
+              >
                 Mark Visited
               </button>
-              <button type="button" style={styles.doneButton} disabled={loading} onClick={() => void updateCaseStatus(selectedCase.id, "Completed")}>
+              <button
+                type="button"
+                style={styles.doneButton}
+                disabled={loading}
+                onClick={() =>
+                  void updateCaseStatus(selectedCase.id, "Completed")
+                }
+              >
                 Complete Case
               </button>
             </section>
           </div>
         )}
 
-        {executive && screen !== "login" && screen !== "register" && screen !== "pending" && (
-          <nav style={styles.bottomNav}>
-            <button style={{ ...styles.navItem, color: screen === "dashboard" ? "#0d3b66" : "#64748b" }} onClick={() => setScreen("dashboard")}>
-              📁 <span>Cases</span>
-            </button>
-            <button style={{ ...styles.navItem, color: screen === "gps" ? "#0d3b66" : "#64748b" }} onClick={() => setScreen("gps")}>
-              📍 <span>GPS Live</span>
-            </button>
-            <button style={{ ...styles.navItem, color: screen === "payments" ? "#0d3b66" : "#64748b" }} onClick={() => setScreen("payments")}>
-              💳 <span>Payments</span>
-            </button>
-            <button style={{ ...styles.navItem, color: screen === "profile" ? "#0d3b66" : "#64748b" }} onClick={() => setScreen("profile")}>
-              👤 <span>Profile</span>
-            </button>
-          </nav>
-        )}
+        {executive &&
+          screen !== "login" &&
+          screen !== "register" &&
+          screen !== "pending" && (
+            <nav style={styles.bottomNav}>
+              <button
+                style={{
+                  ...styles.navItem,
+                  color: screen === "dashboard" ? "#0d3b66" : "#64748b",
+                }}
+                onClick={() => setScreen("dashboard")}
+              >
+                📁 <span>Cases</span>
+              </button>
+              <button
+                style={{
+                  ...styles.navItem,
+                  color: screen === "gps" ? "#0d3b66" : "#64748b",
+                }}
+                onClick={() => setScreen("gps")}
+              >
+                📍 <span>GPS Live</span>
+              </button>
+              <button
+                style={{
+                  ...styles.navItem,
+                  color: screen === "payments" ? "#0d3b66" : "#64748b",
+                }}
+                onClick={() => setScreen("payments")}
+              >
+                💳 <span>Payments</span>
+              </button>
+              <button
+                style={{
+                  ...styles.navItem,
+                  color: screen === "profile" ? "#0d3b66" : "#64748b",
+                }}
+                onClick={() => setScreen("profile")}
+              >
+                👤 <span>Profile</span>
+              </button>
+            </nav>
+          )}
       </div>
     </main>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  page: { minHeight: "100vh", background: "#eef3f8", color: "#0f172a", fontFamily: "Inter, system-ui, sans-serif" },
-  shell: { width: "100%", maxWidth: 560, margin: "0 auto", padding: 16, position: "relative" },
-  header: { display: "flex", alignItems: "center", gap: 12, padding: "16px 4px 20px" },
+const styles: Record<string, CSSProperties> = {
+  page: {
+    minHeight: "100vh",
+    background: "#eef3f8",
+    color: "#0f172a",
+    fontFamily: "Inter, system-ui, sans-serif",
+  },
+  shell: {
+    width: "100%",
+    maxWidth: 560,
+    margin: "0 auto",
+    padding: 16,
+    position: "relative",
+    boxSizing: "border-box",
+  },
+  header: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "16px 4px 20px",
+  },
   logo: { width: 48, height: 48, objectFit: "contain", borderRadius: 12 },
-  card: { background: "#fff", borderRadius: 22, padding: 24, boxShadow: "0 14px 40px rgba(15,23,42,.1)" },
+  card: {
+    background: "#fff",
+    borderRadius: 22,
+    padding: 24,
+    boxShadow: "0 14px 40px rgba(15,23,42,.1)",
+  },
   title: { margin: 0, fontSize: 28 },
   subtext: { color: "#64748b", lineHeight: 1.6 },
   form: { display: "grid", gap: 12, marginTop: 20 },
-  input: { width: "100%", minHeight: 50, padding: "0 14px", borderRadius: 12, border: "1px solid #cbd5e1", background: "#fff", fontSize: 15, boxSizing: "border-box" },
-  primaryButton: { width: "100%", minHeight: 50, border: 0, borderRadius: 12, background: "#0d3b66", color: "#fff", fontSize: 15, fontWeight: 800, cursor: "pointer", marginTop: 6 },
-  linkButton: { width: "100%", padding: 14, border: 0, background: "transparent", color: "#2563eb", fontWeight: 800, cursor: "pointer" },
-  message: { padding: 13, marginBottom: 14, borderRadius: 12, background: "#fff7ed", color: "#9a3412", fontWeight: 700, fontSize: 13 },
-  infoBox: { display: "grid", gap: 8, padding: 16, margin: "18px 0", borderRadius: 14, background: "#f8fafc" },
-  profileCard: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: 20, borderRadius: 20, background: "linear-gradient(135deg,#07192d,#12497b)", color: "#fff" },
-  logoutButton: { border: "1px solid rgba(255,255,255,.35)", borderRadius: 10, padding: "10px 13px", background: "rgba(255,255,255,.1)", color: "#fff", fontWeight: 800 },
-  statsGrid: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginTop: 14 },
-  statCard: { padding: 15, borderRadius: 15, background: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,.06)" },
-  sectionHead: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 12 },
-  smallButton: { border: 0, borderRadius: 9, padding: "9px 12px", background: "#dbeafe", color: "#1d4ed8", fontWeight: 800 },
-  empty: { padding: 30, borderRadius: 16, background: "#fff", textAlign: "center", color: "#64748b" },
+  input: {
+    width: "100%",
+    minHeight: 50,
+    padding: "0 14px",
+    borderRadius: 12,
+    border: "1px solid #cbd5e1",
+    background: "#fff",
+    fontSize: 15,
+    boxSizing: "border-box",
+  },
+  primaryButton: {
+    width: "100%",
+    minHeight: 50,
+    border: 0,
+    borderRadius: 12,
+    background: "#0d3b66",
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: 800,
+    cursor: "pointer",
+    marginTop: 6,
+  },
+  linkButton: {
+    width: "100%",
+    padding: 14,
+    border: 0,
+    background: "transparent",
+    color: "#2563eb",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  message: {
+    padding: 13,
+    marginBottom: 14,
+    borderRadius: 12,
+    background: "#fff7ed",
+    color: "#9a3412",
+    fontWeight: 700,
+    fontSize: 13,
+  },
+  infoBox: {
+    display: "grid",
+    gap: 8,
+    padding: 16,
+    margin: "18px 0",
+    borderRadius: 14,
+    background: "#f8fafc",
+  },
+  profileCard: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    padding: 20,
+    borderRadius: 20,
+    background: "linear-gradient(135deg,#07192d,#12497b)",
+    color: "#fff",
+  },
+  logoutButton: {
+    border: "1px solid rgba(255,255,255,.35)",
+    borderRadius: 10,
+    padding: "10px 13px",
+    background: "rgba(255,255,255,.1)",
+    color: "#fff",
+    fontWeight: 800,
+  },
+  statsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3,1fr)",
+    gap: 10,
+    marginTop: 14,
+  },
+  statCard: {
+    padding: 15,
+    borderRadius: 15,
+    background: "#fff",
+    boxShadow: "0 8px 24px rgba(15,23,42,.06)",
+  },
+  sectionHead: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 22,
+    marginBottom: 12,
+  },
+  smallButton: {
+    border: 0,
+    borderRadius: 9,
+    padding: "9px 12px",
+    background: "#dbeafe",
+    color: "#1d4ed8",
+    fontWeight: 800,
+  },
+  empty: {
+    padding: 30,
+    borderRadius: 16,
+    background: "#fff",
+    textAlign: "center",
+    color: "#64748b",
+  },
   caseList: { display: "grid", gap: 12 },
-  caseCard: { borderRadius: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,.06)", overflow: "hidden" },
-  caseOpenButton: { width: "100%", padding: 16, border: 0, background: "transparent", color: "inherit", textAlign: "left", cursor: "pointer" },
+  caseCard: {
+    borderRadius: 16,
+    background: "#fff",
+    boxShadow: "0 8px 24px rgba(15,23,42,.06)",
+    overflow: "hidden",
+  },
+  caseOpenButton: {
+    width: "100%",
+    padding: 16,
+    border: 0,
+    background: "transparent",
+    color: "inherit",
+    textAlign: "left",
+    cursor: "pointer",
+  },
   caseTop: { display: "flex", justifyContent: "space-between", gap: 12 },
   caseMeta: { marginTop: 4, color: "#64748b", fontSize: 12 },
-  statusBadge: { height: "fit-content", padding: "6px 9px", borderRadius: 999, background: "#eff6ff", color: "#1d4ed8", fontSize: 11, fontWeight: 800 },
-  caseDetails: { display: "grid", gap: 7, marginTop: 14, color: "#475569", fontSize: 13 },
-  viewDetailsText: { marginTop: 14, color: "#2563eb", fontSize: 12, fontWeight: 800 },
-  backButton: { marginBottom: 12, padding: "10px 12px", border: 0, borderRadius: 10, background: "#dbeafe", color: "#1d4ed8", fontWeight: 800 },
-  detailHero: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14, padding: 20, borderRadius: 20, background: "linear-gradient(135deg,#07192d,#12497b)", color: "#fff" },
-  detailKicker: { fontSize: 11, fontWeight: 800, opacity: 0.75, textTransform: "uppercase", letterSpacing: ".08em" },
+  statusBadge: {
+    height: "fit-content",
+    padding: "6px 9px",
+    borderRadius: 999,
+    background: "#eff6ff",
+    color: "#1d4ed8",
+    fontSize: 11,
+    fontWeight: 800,
+  },
+  caseDetails: {
+    display: "grid",
+    gap: 7,
+    marginTop: 14,
+    color: "#475569",
+    fontSize: 13,
+  },
+  viewDetailsText: {
+    marginTop: 14,
+    color: "#2563eb",
+    fontSize: 12,
+    fontWeight: 800,
+  },
+  backButton: {
+    marginBottom: 12,
+    padding: "10px 12px",
+    border: 0,
+    borderRadius: 10,
+    background: "#dbeafe",
+    color: "#1d4ed8",
+    fontWeight: 800,
+  },
+  detailHero: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 14,
+    padding: 20,
+    borderRadius: 20,
+    background: "linear-gradient(135deg,#07192d,#12497b)",
+    color: "#fff",
+  },
+  detailKicker: {
+    fontSize: 11,
+    fontWeight: 800,
+    opacity: 0.75,
+    textTransform: "uppercase",
+    letterSpacing: ".08em",
+  },
   detailTitle: { margin: "7px 0 3px", fontSize: 25 },
   detailSubtitle: { fontSize: 12, opacity: 0.78 },
-  detailStatus: { padding: "7px 10px", borderRadius: 999, background: "rgba(255,255,255,.14)", fontSize: 11, fontWeight: 800, textTransform: "capitalize" },
-  detailGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 },
-  detailBox: { padding: 14, borderRadius: 14, background: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,.05)" },
-  remarksBox: { marginTop: 14, padding: 16, borderRadius: 14, background: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,.05)" },
-  detailActions: { display: "grid", gap: 10, marginTop: 16, paddingBottom: 24 },
-  callButton: { minHeight: 50, border: 0, borderRadius: 12, background: "#2563eb", color: "#fff", fontWeight: 800 },
-  actionButton: { border: 0, borderRadius: 10, padding: 11, background: "#fef3c7", color: "#92400e", fontWeight: 800 },
-  doneButton: { border: 0, borderRadius: 10, padding: 11, background: "#dcfce7", color: "#166534", fontWeight: 800 },
-  bottomNav: { position: "fixed", bottom: 0, left: 0, right: 0, height: 64, background: "#fff", display: "flex", justifyContent: "space-around", alignItems: "center", borderTop: "1px solid #cbd5e1", zIndex: 1000, boxShadow: "0 -4px 20px rgba(0,0,0,0.05)" },
-  navItem: { background: "transparent", border: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, cursor: "pointer" }
+  detailStatus: {
+    padding: "7px 10px",
+    borderRadius: 999,
+    background: "rgba(255,255,255,.14)",
+    fontSize: 11,
+    fontWeight: 800,
+    textTransform: "capitalize",
+  },
+  detailGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+    marginTop: 14,
+  },
+  detailBox: {
+    padding: 14,
+    borderRadius: 14,
+    background: "#fff",
+    boxShadow: "0 8px 24px rgba(15,23,42,.05)",
+  },
+  remarksBox: {
+    marginTop: 14,
+    padding: 16,
+    borderRadius: 14,
+    background: "#fff",
+    boxShadow: "0 8px 24px rgba(15,23,42,.05)",
+  },
+  detailActions: {
+    display: "grid",
+    gap: 10,
+    marginTop: 16,
+    paddingBottom: 24,
+  },
+  callButton: {
+    minHeight: 50,
+    border: 0,
+    borderRadius: 12,
+    background: "#2563eb",
+    color: "#fff",
+    fontWeight: 800,
+  },
+  actionButton: {
+    border: 0,
+    borderRadius: 10,
+    padding: 11,
+    background: "#fef3c7",
+    color: "#92400e",
+    fontWeight: 800,
+  },
+  doneButton: {
+    border: 0,
+    borderRadius: 10,
+    padding: 11,
+    background: "#dcfce7",
+    color: "#166534",
+    fontWeight: 800,
+  },
+  bottomNav: {
+    position: "fixed",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 64,
+    background: "#fff",
+    display: "flex",
+    justifyContent: "space-around",
+    alignItems: "center",
+    borderTop: "1px solid #cbd5e1",
+    zIndex: 1000,
+    boxShadow: "0 -4px 20px rgba(0,0,0,0.05)",
+  },
+  navItem: {
+    background: "transparent",
+    border: 0,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 3,
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
 };

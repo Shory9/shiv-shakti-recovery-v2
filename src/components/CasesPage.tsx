@@ -25,7 +25,7 @@ type SupabaseCase = {
   status?: string | null;
 };
 
-type ExecutiveRow = {
+type ProfileRow = {
   id: number | string;
   executive_code?: string | null;
   name?: string | null;
@@ -85,7 +85,7 @@ function toNumber(value: unknown): number {
 
 function CasesPage() {
   const [cases, setCases] = useState<CaseItem[]>([]);
-  const [executives, setExecutives] = useState<ExecutiveRow[]>([]);
+  const [executives, setExecutives] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -129,16 +129,26 @@ function CasesPage() {
 
   async function loadExecutives() {
     const { data, error: executiveError } = await supabase
-      .from("executive")
+      .from("profiles")
       .select("*")
       .order("id", { ascending: true });
 
     if (executiveError) throw executiveError;
-    setExecutives((data ?? []) as ExecutiveRow[]);
-    return (data ?? []) as ExecutiveRow[];
+
+    const profileRows = (data ?? []) as ProfileRow[];
+    const executiveRows = profileRows.filter((item) => {
+      const role = String((item as ProfileRow & { role?: string | null }).role ?? "")
+        .trim()
+        .toLowerCase();
+
+      return Boolean(item.executive_code?.trim()) || role === "executive" || role === "agent";
+    });
+
+    setExecutives(executiveRows);
+    return executiveRows;
   }
 
-  async function loadAllCases(executiveRows?: ExecutiveRow[]) {
+  async function loadAllCases(executiveRows?: ProfileRow[]) {
     const rows: SupabaseCase[] = [];
     let from = 0;
 
@@ -212,6 +222,24 @@ function CasesPage() {
 
   useEffect(() => {
     void refreshData();
+
+    const channel = supabase
+      .channel("cases-page-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cases" },
+        () => void refreshData()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profiles" },
+        () => void refreshData()
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
   }, []);
 
   useEffect(() => {

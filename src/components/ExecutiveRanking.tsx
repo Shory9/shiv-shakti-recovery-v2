@@ -1,73 +1,139 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 
+type ExecutiveProfile = {
+  id: string | number;
+  executive_code?: string | null;
+  agent_code?: string | null;
+  employee_code?: string | null;
+  full_name?: string | null;
+  name?: string | null;
+  area?: string | null;
+  assigned_area?: string | null;
+  city?: string | null;
+  role?: string | null;
+  user_role?: string | null;
+};
+
+type CaseRow = {
+  id: string | number;
+  assigned_executive?: string | null;
+  assigned_executive_id?: string | number | null;
+  status?: string | null;
+};
+
 type ExecutiveRankRow = {
-  id: number;
+  id: string;
   executive_code: string;
   full_name: string;
   area: string;
   totalAssigned: number;
   completedCases: number;
   completionRate: number;
-  completionPercent: number; // <-- Yeh property add kar di hai
+  completionPercent: number;
 };
+
+function normalized(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function isCompletedStatus(status?: string | null): boolean {
+  return ["completed", "paid", "closed", "settled", "recovered"].includes(
+    normalized(status)
+  );
+}
 
 export default function ExecutiveRankingPage() {
   const [rankings, setRankings] = useState<ExecutiveRankRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    void loadRankings();
+  const fetchAllRows = useCallback(async <T,>(table: string): Promise<T[]> => {
+    const rows: T[] = [];
+    const pageSize = 1000;
+    let from = 0;
+
+    while (true) {
+      const { data, error: queryError } = await supabase
+        .from(table)
+        .select("*")
+        .range(from, from + pageSize - 1);
+
+      if (queryError) throw queryError;
+
+      const page = (data ?? []) as T[];
+      rows.push(...page);
+
+      if (page.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows;
   }, []);
 
-  async function loadRankings() {
+  const loadRankings = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
-      const { data: execData, error: execError } = await supabase
-        .from("executive")
-        .select("*");
+      const [profileRows, caseRows] = await Promise.all([
+        fetchAllRows<ExecutiveProfile>("profiles"),
+        fetchAllRows<CaseRow>("cases"),
+      ]);
 
-      if (execError) throw execError;
+      const executives = profileRows.filter((profile) => {
+        const role = normalized(profile.role || profile.user_role);
 
-      const { data: caseData, error: caseError } = await supabase
-        .from("cases")
-        .select("id, assigned_executive, assigned_executive_id, status");
+        return (
+          !role ||
+          role === "executive" ||
+          role === "agent" ||
+          role === "field_executive"
+        );
+      });
 
-      if (caseError) throw caseError;
+      const mapped: ExecutiveRankRow[] = executives.map((executive, index) => {
+        const executiveId = String(executive.id);
+        const executiveCode =
+          executive.executive_code ||
+          executive.agent_code ||
+          executive.employee_code ||
+          `SS${String(index + 1).padStart(3, "0")}`;
 
-      const executives = execData ?? [];
-      const cases = caseData ?? [];
+        const normalizedCode = normalized(executiveCode);
 
-      const mapped: ExecutiveRankRow[] = executives.map((ex: any) => {
-        const exId = Number(ex.id);
-        const exCode = String(ex.executive_code || "").trim().toLowerCase();
-        const exName = ex.full_name || ex.name || "Unknown Executive";
-        const exArea = ex.area || "Unassigned";
+        const assigned = caseRows.filter((item) => {
+          const assignedId = String(item.assigned_executive_id ?? "");
+          const assignedCode = normalized(item.assigned_executive);
 
-        const assigned = cases.filter((c: any) => {
-          const matchId = Number(c.assigned_executive_id) === exId;
-          const matchCode = String(c.assigned_executive || "").trim().toLowerCase() === exCode;
-          return matchId || matchCode;
+          return (
+            (assignedId && assignedId === executiveId) ||
+            (assignedCode && assignedCode === normalizedCode)
+          );
         });
 
-        const completed = assigned.filter((c: any) => {
-          const st = String(c.status || "").trim().toLowerCase();
-          return ["completed", "paid", "closed", "settled"].includes(st);
-        }).length;
+        const completedCases = assigned.filter((item) =>
+          isCompletedStatus(item.status)
+        ).length;
 
         const totalAssigned = assigned.length;
-        const completionRate = totalAssigned > 0 ? Math.round((completed / totalAssigned) * 100) : 0;
+        const completionRate =
+          totalAssigned > 0
+            ? Math.round((completedCases / totalAssigned) * 100)
+            : 0;
 
         return {
-          id: exId,
-          executive_code: ex.executive_code || `SS${exId}`,
-          full_name: exName,
-          area: exArea,
+          id: executiveId,
+          executive_code: executiveCode,
+          full_name:
+            executive.full_name || executive.name || "Unknown Executive",
+          area:
+            executive.area ||
+            executive.assigned_area ||
+            executive.city ||
+            "Unassigned",
           totalAssigned,
-          completedCases: completed,
+          completedCases,
           completionRate,
           completionPercent: completionRate,
         };
@@ -77,28 +143,92 @@ export default function ExecutiveRankingPage() {
         if (b.completedCases !== a.completedCases) {
           return b.completedCases - a.completedCases;
         }
-        return b.completionRate - a.completionRate;
+
+        if (b.completionRate !== a.completionRate) {
+          return b.completionRate - a.completionRate;
+        }
+
+        return b.totalAssigned - a.totalAssigned;
       });
 
       setRankings(mapped);
-    } catch (err: any) {
-      setError(err?.message || "Rankings load nahi ho paayi.");
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Rankings load nahi ho paayi.";
+
+      setError(message);
+      console.error("Executive ranking error:", caughtError);
     } finally {
       setLoading(false);
     }
-  }
+  }, [fetchAllRows]);
+
+  useEffect(() => {
+    void loadRankings();
+
+    const channel = supabase
+      .channel("executive-ranking-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profiles" },
+        () => void loadRankings()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cases" },
+        () => void loadRankings()
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [loadRankings]);
 
   return (
-    <div style={{ padding: "24px", backgroundColor: "#f8fafc", minHeight: "100vh", fontFamily: "sans-serif" }}>
-      <div style={{ marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div
+      style={{
+        padding: "24px",
+        backgroundColor: "#f8fafc",
+        minHeight: "100vh",
+        fontFamily: "sans-serif",
+      }}
+    >
+      <div
+        style={{
+          marginBottom: "20px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "12px",
+          flexWrap: "wrap",
+        }}
+      >
         <div>
-          <h2 style={{ fontSize: "22px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+          <h2
+            style={{
+              fontSize: "22px",
+              fontWeight: "800",
+              color: "#0f172a",
+              margin: 0,
+            }}
+          >
             🏆 Executive Performance Ranking
           </h2>
-          <p style={{ fontSize: "13px", color: "#64748b", margin: "4px 0 0 0" }}>
+
+          <p
+            style={{
+              fontSize: "13px",
+              color: "#64748b",
+              margin: "4px 0 0 0",
+            }}
+          >
             Shiv Shakti Recovery Field Team Leaderboard
           </p>
         </div>
+
         <button
           type="button"
           onClick={() => void loadRankings()}
@@ -112,6 +242,7 @@ export default function ExecutiveRankingPage() {
             fontWeight: "700",
             fontSize: "13px",
             cursor: loading ? "not-allowed" : "pointer",
+            opacity: loading ? 0.7 : 1,
           }}
         >
           {loading ? "Refreshing..." : "Refresh Leaderboard"}
@@ -119,19 +250,60 @@ export default function ExecutiveRankingPage() {
       </div>
 
       {error && (
-        <div style={{ padding: "12px", marginBottom: "16px", backgroundColor: "#fef2f2", color: "#b91c1c", borderRadius: "8px", fontWeight: "700", fontSize: "13px" }}>
+        <div
+          style={{
+            padding: "12px",
+            marginBottom: "16px",
+            backgroundColor: "#fef2f2",
+            color: "#b91c1c",
+            borderRadius: "8px",
+            border: "1px solid #fecaca",
+            fontWeight: "700",
+            fontSize: "13px",
+          }}
+        >
           {error}
         </div>
       )}
 
-      <div style={{ backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px", boxShadow: "0 2px 4px rgba(0,0,0,0.04)" }}>
+      <div
+        style={{
+          backgroundColor: "#ffffff",
+          border: "1px solid #e2e8f0",
+          borderRadius: "12px",
+          padding: "16px",
+          boxShadow: "0 2px 4px rgba(0,0,0,0.04)",
+        }}
+      >
         {loading ? (
-          <p style={{ padding: "30px", textAlign: "center", color: "#64748b", fontSize: "13px" }}>Calculating rankings...</p>
+          <p
+            style={{
+              padding: "30px",
+              textAlign: "center",
+              color: "#64748b",
+              fontSize: "13px",
+            }}
+          >
+            Calculating rankings...
+          </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: "13px",
+                textAlign: "left",
+              }}
+            >
               <thead>
-                <tr style={{ backgroundColor: "#f8fafc", borderBottom: "2px solid #e2e8f0", color: "#475569" }}>
+                <tr
+                  style={{
+                    backgroundColor: "#f8fafc",
+                    borderBottom: "2px solid #e2e8f0",
+                    color: "#475569",
+                  }}
+                >
                   <th style={{ padding: "12px", width: "80px" }}>Rank</th>
                   <th style={{ padding: "12px" }}>Executive Code</th>
                   <th style={{ padding: "12px" }}>Name</th>
@@ -141,29 +313,99 @@ export default function ExecutiveRankingPage() {
                   <th style={{ padding: "12px" }}>Success Rate</th>
                 </tr>
               </thead>
+
               <tbody>
-                {rankings.map((ex, index) => {
+                {rankings.map((executive, index) => {
                   let medal = `#${index + 1}`;
+
                   if (index === 0) medal = "🥇 1st";
                   else if (index === 1) medal = "🥈 2nd";
                   else if (index === 2) medal = "🥉 3rd";
 
                   return (
-                    <tr key={ex.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                      <td style={{ padding: "12px", fontWeight: "800", color: index < 3 ? "#2563eb" : "#64748b" }}>
+                    <tr
+                      key={executive.id}
+                      style={{ borderBottom: "1px solid #f1f5f9" }}
+                    >
+                      <td
+                        style={{
+                          padding: "12px",
+                          fontWeight: "800",
+                          color: index < 3 ? "#2563eb" : "#64748b",
+                        }}
+                      >
                         {medal}
                       </td>
-                      <td style={{ padding: "12px", fontWeight: "700", fontFamily: "monospace" }}>{ex.executive_code}</td>
-                      <td style={{ padding: "12px", fontWeight: "700", color: "#0f172a" }}>{ex.full_name}</td>
-                      <td style={{ padding: "12px", color: "#475569" }}>{ex.area}</td>
-                      <td style={{ padding: "12px", fontWeight: "700" }}>{ex.totalAssigned}</td>
-                      <td style={{ padding: "12px", fontWeight: "700", color: "#059669" }}>{ex.completedCases}</td>
+
+                      <td
+                        style={{
+                          padding: "12px",
+                          fontWeight: "700",
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {executive.executive_code}
+                      </td>
+
+                      <td
+                        style={{
+                          padding: "12px",
+                          fontWeight: "700",
+                          color: "#0f172a",
+                        }}
+                      >
+                        {executive.full_name}
+                      </td>
+
+                      <td style={{ padding: "12px", color: "#475569" }}>
+                        {executive.area}
+                      </td>
+
+                      <td style={{ padding: "12px", fontWeight: "700" }}>
+                        {executive.totalAssigned}
+                      </td>
+
+                      <td
+                        style={{
+                          padding: "12px",
+                          fontWeight: "700",
+                          color: "#059669",
+                        }}
+                      >
+                        {executive.completedCases}
+                      </td>
+
                       <td style={{ padding: "12px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                          <div style={{ flex: 1, height: "8px", backgroundColor: "#e2e8f0", borderRadius: "999px", overflow: "hidden", maxWidth: "120px" }}>
-                            <div style={{ width: `${ex.completionPercent}%`, height: "100%", backgroundColor: "#2563eb", borderRadius: "999px" }} />
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "10px",
+                          }}
+                        >
+                          <div
+                            style={{
+                              flex: 1,
+                              height: "8px",
+                              backgroundColor: "#e2e8f0",
+                              borderRadius: "999px",
+                              overflow: "hidden",
+                              maxWidth: "120px",
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${executive.completionPercent}%`,
+                                height: "100%",
+                                backgroundColor: "#2563eb",
+                                borderRadius: "999px",
+                              }}
+                            />
                           </div>
-                          <strong style={{ fontSize: "12px" }}>{ex.completionPercent}%</strong>
+
+                          <strong style={{ fontSize: "12px" }}>
+                            {executive.completionPercent}%
+                          </strong>
                         </div>
                       </td>
                     </tr>
@@ -172,7 +414,14 @@ export default function ExecutiveRankingPage() {
 
                 {rankings.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{ padding: "30px", textAlign: "center", color: "#64748b" }}>
+                    <td
+                      colSpan={7}
+                      style={{
+                        padding: "30px",
+                        textAlign: "center",
+                        color: "#64748b",
+                      }}
+                    >
                       Koi executive records nahi mile.
                     </td>
                   </tr>

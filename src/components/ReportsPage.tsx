@@ -19,11 +19,12 @@ type PaymentRow = {
   payment_date?: string | null;
   bank_name?: string | null;
   executive_code?: string | null;
+  executive_id?: string | null;
   created_at?: string | null;
 };
 
 type ExecutiveRow = {
-  id: number;
+  id: string;
   executive_code?: string | null;
   agent_code?: string | null;
   full_name?: string | null;
@@ -41,28 +42,62 @@ export default function ReportsPage(): React.ReactElement {
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
 
+  const fetchAllRows = useCallback(async <T,>(table: string): Promise<T[]> => {
+    const pageSize = 1000;
+    const rows: T[] = [];
+    let from = 0;
+
+    while (true) {
+      const { data, error } = await supabase
+        .from(table)
+        .select("*")
+        .range(from, from + pageSize - 1);
+
+      if (error) throw error;
+
+      const page = (data ?? []) as T[];
+      rows.push(...page);
+
+      if (page.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows;
+  }, []);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
+
     try {
-      const [casesRes, paymentsRes, execsRes] = await Promise.all([
-        supabase.from("cases").select("*"),
-        supabase.from("payments").select("*"),
-        supabase.from("executives").select("*"),
+      const [allCases, allPayments, allProfiles] = await Promise.all([
+        fetchAllRows<CaseRow>("cases"),
+        fetchAllRows<PaymentRow>("payments"),
+        fetchAllRows<ExecutiveRow>("profiles"),
       ]);
 
-      if (casesRes.error) throw casesRes.error;
-      if (paymentsRes.error) throw paymentsRes.error;
-      if (execsRes.error) throw execsRes.error;
+      const executiveProfiles = allProfiles.filter((profile) => {
+        const role = String((profile as ExecutiveRow & { role?: string | null }).role || "")
+          .trim()
+          .toLowerCase();
 
-      setCases(casesRes.data || []);
-      setPayments(paymentsRes.data || []);
-      setExecutives(execsRes.data || []);
-    } catch (err: any) {
-      console.error("Error loading reports data:", err.message);
+        return (
+          !role ||
+          role === "executive" ||
+          role === "agent" ||
+          role === "field_executive"
+        );
+      });
+
+      setCases(allCases);
+      setPayments(allPayments);
+      setExecutives(executiveProfiles);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Reports data load nahi ho saka.";
+      console.error("Error loading reports data:", message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchAllRows]);
 
   useEffect(() => {
     void fetchData();
@@ -111,19 +146,34 @@ export default function ReportsPage(): React.ReactElement {
   const executiveReport = useMemo(() => {
     const map = new Map<string, { name: string; recovered: number; collectionsCount: number }>();
 
+    const profileById = new Map<string, string>();
+
     executives.forEach((ex) => {
-      const code = (ex.executive_code || ex.agent_code || `SS${ex.id}`).trim().toLowerCase();
+      const code = (ex.executive_code || ex.agent_code || `SS${ex.id}`)
+        .trim()
+        .toLowerCase();
       const name = ex.full_name || ex.name || "Unknown Executive";
+
       map.set(code, { name, recovered: 0, collectionsCount: 0 });
+      profileById.set(String(ex.id), code);
     });
 
     filteredPayments.forEach((p) => {
-      const execCode = p.executive_code?.trim().toLowerCase();
-      if (execCode && map.has(execCode)) {
-        const item = map.get(execCode)!;
-        item.recovered += Number(p.amount) || 0;
-        item.collectionsCount += 1;
-      }
+      const paymentCode = p.executive_code?.trim().toLowerCase();
+      const matchedCode =
+        paymentCode && map.has(paymentCode)
+          ? paymentCode
+          : p.executive_id
+            ? profileById.get(String(p.executive_id))
+            : undefined;
+
+      if (!matchedCode) return;
+
+      const item = map.get(matchedCode);
+      if (!item) return;
+
+      item.recovered += Number(p.amount) || 0;
+      item.collectionsCount += 1;
     });
 
     return Array.from(map.values()).sort((a, b) => b.recovered - a.recovered);

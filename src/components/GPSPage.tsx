@@ -151,8 +151,7 @@ function GPSPage() {
         const latitude = numberValue(executive, ["latitude"]);
         const longitude = numberValue(executive, ["longitude"]);
         const accuracy = null; 
-        const lastUpdated = textValue(executive, ["last_location_time"], null);
-
+       const lastUpdated = textValue(executive, ["last_location_time"], "");
         return {
           id,
           name: textValue(executive, ["full_name", "name", "executive_name"], "Unnamed Executive"),

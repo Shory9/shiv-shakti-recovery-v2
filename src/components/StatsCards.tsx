@@ -1,39 +1,230 @@
-const stats = [
-  {
-    title: "Total Cases",
-    value: "2,444",
-    icon: "▦",
-    note: "All recovery cases",
-    trend: "+12.4%",
-    tone: "blue",
-  },
-  {
-    title: "Pending Cases",
-    value: "1,286",
-    icon: "◷",
-    note: "Cases requiring action",
-    trend: "52.6%",
-    tone: "amber",
-  },
-  {
-    title: "Visited Today",
-    value: "148",
-    icon: "✓",
-    note: "Field visits completed",
-    trend: "+18 today",
-    tone: "green",
-  },
-  {
-    title: "Total Recovery",
-    value: "₹8,42,500",
-    icon: "₹",
-    note: "Current collection value",
-    trend: "+8.7%",
-    tone: "purple",
-  },
-];
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { supabase } from "../supabaseClient";
+
+type CaseRow = {
+  id: number | string;
+  status?: string | null;
+};
+
+type PaymentRow = {
+  id: number | string;
+  amount?: number | string | null;
+};
+
+type OperationRow = {
+  id: number | string;
+  created_at?: string | null;
+  operation_date?: string | null;
+  visit_date?: string | null;
+  action_type?: string | null;
+  operation_type?: string | null;
+  status?: string | null;
+};
+
+type Tone = "blue" | "amber" | "green" | "purple";
+
+type StatCard = {
+  title: string;
+  value: string;
+  icon: string;
+  note: string;
+  trend: string;
+  tone: Tone;
+};
+
+function isPendingStatus(status?: string | null): boolean {
+  const normalized = String(status || "").trim().toLowerCase();
+
+  return (
+    !normalized ||
+    normalized === "pending" ||
+    normalized === "assigned" ||
+    normalized === "open" ||
+    normalized === "in progress" ||
+    normalized === "in_progress" ||
+    normalized === "follow up" ||
+    normalized === "follow_up"
+  );
+}
+
+function isVisitOperation(operation: OperationRow): boolean {
+  const type = String(
+    operation.action_type ||
+      operation.operation_type ||
+      operation.status ||
+      ""
+  )
+    .trim()
+    .toLowerCase();
+
+  return (
+    !type ||
+    type.includes("visit") ||
+    type.includes("field") ||
+    type.includes("customer met")
+  );
+}
+
+function getOperationDate(operation: OperationRow): string {
+  return (
+    operation.visit_date ||
+    operation.operation_date ||
+    operation.created_at ||
+    ""
+  );
+}
 
 function StatsCards() {
+  const [cases, setCases] = useState<CaseRow[]>([]);
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [operations, setOperations] = useState<OperationRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const fetchAllRows = useCallback(async <T,>(table: string): Promise<T[]> => {
+    const rows: T[] = [];
+    const pageSize = 1000;
+    let from = 0;
+
+    while (true) {
+      const { data, error: queryError } = await supabase
+        .from(table)
+        .select("*")
+        .range(from, from + pageSize - 1);
+
+      if (queryError) throw queryError;
+
+      const page = (data ?? []) as T[];
+      rows.push(...page);
+
+      if (page.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows;
+  }, []);
+
+  const loadStats = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const [caseRows, paymentRows, operationRows] = await Promise.all([
+        fetchAllRows<CaseRow>("cases"),
+        fetchAllRows<PaymentRow>("payments"),
+        fetchAllRows<OperationRow>("case_operations"),
+      ]);
+
+      setCases(caseRows);
+      setPayments(paymentRows);
+      setOperations(operationRows);
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Dashboard stats load nahi ho sake.";
+
+      console.error("StatsCards load error:", caughtError);
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchAllRows]);
+
+  useEffect(() => {
+    void loadStats();
+
+    const channel = supabase
+      .channel("stats-cards-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cases" },
+        () => void loadStats()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payments" },
+        () => void loadStats()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "case_operations" },
+        () => void loadStats()
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [loadStats]);
+
+  const stats = useMemo<StatCard[]>(() => {
+    const totalCases = cases.length;
+    const pendingCases = cases.filter((item) =>
+      isPendingStatus(item.status)
+    ).length;
+
+    const today = new Date();
+    const todayKey = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    const visitedToday = operations.filter((operation) => {
+      const operationDate = getOperationDate(operation);
+
+      return (
+        Boolean(operationDate) &&
+        operationDate.slice(0, 10) === todayKey &&
+        isVisitOperation(operation)
+      );
+    }).length;
+
+    const totalRecovery = payments.reduce(
+      (sum, payment) => sum + (Number(payment.amount) || 0),
+      0
+    );
+
+    const pendingPercent =
+      totalCases > 0 ? (pendingCases / totalCases) * 100 : 0;
+
+    return [
+      {
+        title: "Total Cases",
+        value: totalCases.toLocaleString("en-IN"),
+        icon: "▦",
+        note: "All recovery cases",
+        trend: "Live Data",
+        tone: "blue",
+      },
+      {
+        title: "Pending Cases",
+        value: pendingCases.toLocaleString("en-IN"),
+        icon: "◷",
+        note: "Cases requiring action",
+        trend: `${pendingPercent.toFixed(1)}%`,
+        tone: "amber",
+      },
+      {
+        title: "Visited Today",
+        value: visitedToday.toLocaleString("en-IN"),
+        icon: "✓",
+        note: "Field visits completed",
+        trend: "Today",
+        tone: "green",
+      },
+      {
+        title: "Total Recovery",
+        value: `₹${totalRecovery.toLocaleString("en-IN")}`,
+        icon: "₹",
+        note: "Current collection value",
+        trend: `${payments.length.toLocaleString("en-IN")} payments`,
+        tone: "purple",
+      },
+    ];
+  }, [cases, payments, operations]);
+
   return (
     <section className="stats-cards-grid">
       <style>{`
@@ -41,6 +232,24 @@ function StatsCards() {
           display: grid;
           grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 16px;
+        }
+
+        .stats-cards-message {
+          grid-column: 1 / -1;
+          padding: 18px;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          background: #ffffff;
+          color: #64748b;
+          text-align: center;
+          font-size: 13px;
+          font-weight: 700;
+        }
+
+        .stats-cards-message.error {
+          color: #b91c1c;
+          border-color: #fecaca;
+          background: #fef2f2;
         }
 
         .premium-stat-card {
@@ -75,21 +284,10 @@ function StatsCards() {
           opacity: 0.14;
         }
 
-        .premium-stat-card.blue::after {
-          background: #2563eb;
-        }
-
-        .premium-stat-card.amber::after {
-          background: #f59e0b;
-        }
-
-        .premium-stat-card.green::after {
-          background: #10b981;
-        }
-
-        .premium-stat-card.purple::after {
-          background: #7c3aed;
-        }
+        .premium-stat-card.blue::after { background: #2563eb; }
+        .premium-stat-card.amber::after { background: #f59e0b; }
+        .premium-stat-card.green::after { background: #10b981; }
+        .premium-stat-card.purple::after { background: #7c3aed; }
 
         .premium-stat-top {
           position: relative;
@@ -222,36 +420,34 @@ function StatsCards() {
         }
       `}</style>
 
-      {stats.map((stat) => (
-        <article
-          className={`premium-stat-card ${stat.tone}`}
-          key={stat.title}
-        >
-          <div className="premium-stat-top">
-            <div className="premium-stat-copy">
-              <p>{stat.title}</p>
-              <h3>{stat.value}</h3>
+      {loading ? (
+        <div className="stats-cards-message">Loading live dashboard stats...</div>
+      ) : error ? (
+        <div className="stats-cards-message error">{error}</div>
+      ) : (
+        stats.map((stat) => (
+          <article
+            className={`premium-stat-card ${stat.tone}`}
+            key={stat.title}
+          >
+            <div className="premium-stat-top">
+              <div className="premium-stat-copy">
+                <p>{stat.title}</p>
+                <h3>{stat.value}</h3>
+              </div>
+
+              <div className="premium-stat-icon">{stat.icon}</div>
             </div>
 
-            <div className="premium-stat-icon">
-              {stat.icon}
+            <div className="premium-stat-bottom">
+              <span className="premium-stat-note">{stat.note}</span>
+              <span className="premium-stat-trend">{stat.trend}</span>
             </div>
-          </div>
-
-          <div className="premium-stat-bottom">
-            <span className="premium-stat-note">
-              {stat.note}
-            </span>
-
-            <span className="premium-stat-trend">
-              {stat.trend}
-            </span>
-          </div>
-        </article>
-      ))}
+          </article>
+        ))
+      )}
     </section>
   );
 }
 
 export default StatsCards;
-

@@ -2,13 +2,15 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 
 type Executive = {
-  id: number;
+  id: number | string;
   executive_code: string;
   full_name: string;
   phone: string;
   area: string;
   vehicle_type: string;
   status: string;
+  role?: string | null;
+  user_role?: string | null;
 };
 
 // Available pre-defined areas for Neemuch region
@@ -36,7 +38,7 @@ export default function ExecutivesPage(): React.ReactElement {
   const [customArea, setCustomArea] = useState("");
   const [vehicleType, setVehicleType] = useState("car");
   const [isAdding, setIsAdding] = useState(false);
-  const [workingId, setWorkingId] = useState<number | null>(null);
+  const [workingId, setWorkingId] = useState<number | string | null>(null);
 
   useEffect(() => {
     void fetchExecutives();
@@ -47,22 +49,29 @@ export default function ExecutivesPage(): React.ReactElement {
 
     try {
       const { data, error } = await supabase
-        .from("executive")
+        .from("profiles")
         .select("*")
         .order("id", { ascending: false });
 
       if (error) throw error;
 
       setExecutives(
-        (data ?? []).map((e: any) => ({
-          id: Number(e.id),
-          executive_code: e.executive_code?.trim() || "",
-          full_name: e.full_name || e.name || "",
-          phone: e.phone || e.mobile || "",
-          area: e.area || "",
-          vehicle_type: e.vehicle_type || "bike",
-          status: e.status || "active",
-        }))
+        (data ?? [])
+          .filter((e: any) => {
+            const role = String(e.role ?? e.user_role ?? "").trim().toLowerCase();
+            return !role || role === "executive" || role === "field_executive";
+          })
+          .map((e: any) => ({
+            id: e.id,
+            executive_code: e.executive_code?.trim() || "",
+            full_name: e.full_name || e.name || "",
+            phone: e.phone || e.mobile || "",
+            area: e.area || "",
+            vehicle_type: e.vehicle_type || "bike",
+            status: e.status || "active",
+            role: e.role ?? null,
+            user_role: e.user_role ?? null,
+          }))
       );
     } catch (err: any) {
       alert("Error fetching executives: " + (err?.message || "Unknown error"));
@@ -92,6 +101,13 @@ export default function ExecutivesPage(): React.ReactElement {
     setIsAdding(true);
 
     try {
+      const normalizedPhone = phone.trim();
+      const duplicate = executives.some((item) => item.phone.trim() === normalizedPhone);
+      if (duplicate) {
+        alert("Is phone number se executive pehle se registered hai.");
+        return;
+      }
+
       const generatedCode = `SS${Math.floor(100000 + Math.random() * 900000)}`;
 
       const newExec = {
@@ -101,9 +117,10 @@ export default function ExecutivesPage(): React.ReactElement {
         area: finalArea,
         vehicle_type: vehicleType,
         status: "active",
+        role: "executive",
       };
 
-      const { error } = await supabase.from("executive").insert([newExec]);
+      const { error } = await supabase.from("profiles").insert([newExec]);
 
       if (error) throw error;
 
@@ -136,7 +153,7 @@ export default function ExecutivesPage(): React.ReactElement {
 
     try {
       const { error } = await supabase
-        .from("executive")
+        .from("profiles")
         .update({ status: "active" })
         .eq("id", executive.id);
 
@@ -167,7 +184,7 @@ export default function ExecutivesPage(): React.ReactElement {
 
     try {
       const { error } = await supabase
-        .from("executive")
+        .from("profiles")
         .delete()
         .eq("id", executive.id);
 

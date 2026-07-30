@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { supabase } from "../supabaseClient";
 
+type RawRow = Record<string, unknown>;
 type PaymentStatus = "All" | "Pending" | "Verified" | "Rejected";
 
 type PaymentRecord = {
-  id: number;
+  id: string;
   receiptNumber: string;
   customerName: string;
   mobile: string;
@@ -16,12 +18,220 @@ type PaymentRecord = {
   status: Exclude<PaymentStatus, "All">;
 };
 
-const payments: PaymentRecord[] = [];
+const PAGE_SIZE = 1000;
+
+function text(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function first(row: RawRow, keys: string[], fallback = ""): string {
+  for (const key of keys) {
+    const value = text(row[key]);
+    if (value) return value;
+  }
+  return fallback;
+}
+
+function numberValue(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeStatus(value: unknown): Exclude<PaymentStatus, "All"> {
+  const status = text(value).toLowerCase();
+
+  if (["verified", "approved", "paid", "completed", "success"].includes(status)) {
+    return "Verified";
+  }
+
+  if (["rejected", "failed", "cancelled", "canceled"].includes(status)) {
+    return "Rejected";
+  }
+
+  return "Pending";
+}
+
+function formatDate(value: unknown): string {
+  const raw = text(value);
+  if (!raw) return "-";
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+
+  return date.toLocaleDateString("en-IN");
+}
+
+async function fetchAll(table: "payments" | "cases" | "profiles") {
+  const rows: RawRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+
+    const page = (data ?? []) as RawRow[];
+    rows.push(...page);
+
+    if (page.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return rows;
+}
 
 function PaymentsPage() {
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] =
-    useState<PaymentStatus>("All");
+  const [statusFilter, setStatusFilter] = useState<PaymentStatus>("All");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const loadPayments = useCallback(async (silent = false) => {
+    silent ? setRefreshing(true) : setLoading(true);
+    setMessage("");
+
+    try {
+      const [paymentRows, caseRows, profileRows] = await Promise.all([
+        fetchAll("payments"),
+        fetchAll("cases"),
+        fetchAll("profiles"),
+      ]);
+
+      const casesById = new Map<string, RawRow>();
+      caseRows.forEach((row) => {
+        const id = first(row, ["id", "case_id"]);
+        if (id) casesById.set(id, row);
+      });
+
+      const profilesById = new Map<string, RawRow>();
+      profileRows.forEach((row) => {
+        const id = first(row, ["id", "profile_id"]);
+        if (id) profilesById.set(id, row);
+      });
+
+      const mapped = paymentRows.map((payment, index): PaymentRecord => {
+        const caseId = first(payment, ["case_id"]);
+        const executiveId = first(payment, [
+          "executive_id",
+          "collected_by",
+          "profile_id",
+          "created_by",
+        ]);
+
+        const caseRow = casesById.get(caseId) ?? {};
+        const profileRow = profilesById.get(executiveId) ?? {};
+
+        return {
+          id: first(payment, ["id"], String(index + 1)),
+          receiptNumber: first(
+            payment,
+            ["receipt_number", "receipt_no", "transaction_id", "reference_number"],
+            "-"
+          ),
+          customerName: first(
+            payment,
+            ["customer_name"],
+            first(caseRow, ["customer_name", "account_name", "name"], "Unknown Customer")
+          ),
+          mobile: first(
+            payment,
+            ["mobile", "phone"],
+            first(caseRow, ["mobile", "mobile_no", "phone"], "-")
+          ),
+          caseNumber: first(
+            payment,
+            ["case_number"],
+            first(caseRow, ["case_number", "account_no", "id"], "-")
+          ),
+          executiveName: first(
+            payment,
+            ["executive_name"],
+            first(profileRow, ["full_name", "name"], "-")
+          ),
+          bankName: first(
+            payment,
+            ["bank_name"],
+            first(caseRow, ["bank_name", "branch", "branch_name"], "-")
+          ),
+          amount: numberValue(
+            payment.amount ??
+              payment.payment_amount ??
+              payment.collected_amount ??
+              payment.recovery_amount
+          ),
+          paymentMode: first(
+            payment,
+            ["payment_mode", "mode", "payment_method"],
+            "-"
+          ),
+          paymentDate: formatDate(
+            payment.payment_date ??
+              payment.collected_at ??
+              payment.created_at
+          ),
+          status: normalizeStatus(
+            payment.status ??
+              payment.verification_status ??
+              payment.payment_status
+          ),
+        };
+      });
+
+      mapped.sort((a, b) => {
+        const firstDate = new Date(a.paymentDate).getTime();
+        const secondDate = new Date(b.paymentDate).getTime();
+
+        if (Number.isNaN(firstDate) || Number.isNaN(secondDate)) return 0;
+        return secondDate - firstDate;
+      });
+
+      setPayments(mapped);
+    } catch (error) {
+      console.error("Payment load error:", error);
+      setPayments([]);
+      setMessage(
+        error instanceof Error
+          ? `Payment load error: ${error.message}`
+          : "Payment data load nahi hua."
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPayments();
+
+    const channel = supabase
+      .channel("payments-page-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payments" },
+        () => void loadPayments(true)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cases" },
+        () => void loadPayments(true)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profiles" },
+        () => void loadPayments(true)
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [loadPayments]);
 
   const filteredPayments = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -30,7 +240,7 @@ function PaymentsPage() {
       const matchesSearch =
         !query ||
         payment.customerName.toLowerCase().includes(query) ||
-        payment.mobile.includes(query) ||
+        payment.mobile.toLowerCase().includes(query) ||
         payment.caseNumber.toLowerCase().includes(query) ||
         payment.receiptNumber.toLowerCase().includes(query) ||
         payment.executiveName.toLowerCase().includes(query) ||
@@ -41,540 +251,118 @@ function PaymentsPage() {
 
       return matchesSearch && matchesStatus;
     });
-  }, [search, statusFilter]);
+  }, [payments, search, statusFilter]);
 
-  const totalAmount = payments.reduce(
-    (total, payment) => total + payment.amount,
-    0
-  );
-
+  const totalAmount = payments.reduce((total, payment) => total + payment.amount, 0);
   const verifiedAmount = payments
     .filter((payment) => payment.status === "Verified")
     .reduce((total, payment) => total + payment.amount, 0);
+  const pendingCount = payments.filter((payment) => payment.status === "Pending").length;
+  const rejectedCount = payments.filter((payment) => payment.status === "Rejected").length;
 
-  const pendingCount = payments.filter(
-    (payment) => payment.status === "Pending"
-  ).length;
-
-  const rejectedCount = payments.filter(
-    (payment) => payment.status === "Rejected"
-  ).length;
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-IN", {
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat("en-IN", {
       style: "currency",
       currency: "INR",
       maximumFractionDigits: 0,
     }).format(amount);
-  };
-
-  const getStatusClass = (
-    status: Exclude<PaymentStatus, "All">
-  ) => {
-    return status.toLowerCase();
-  };
 
   return (
     <div className="payments-page">
       <style>{`
-        .payments-page {
-          min-height: 100%;
-          padding: 26px;
-          background:
-            radial-gradient(
-              circle at top right,
-              rgba(14, 165, 233, 0.09),
-              transparent 27%
-            ),
-            #f5f7fb;
-          color: #0f172a;
-          box-sizing: border-box;
-        }
-
-        .payments-page * {
-          box-sizing: border-box;
-        }
-
-        .payments-hero {
-          position: relative;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 24px;
-          overflow: hidden;
-          padding: 30px;
-          border-radius: 22px;
-          color: white;
-          background:
-            linear-gradient(
-              135deg,
-              rgba(255, 255, 255, 0.05),
-              transparent
-            ),
-            linear-gradient(
-              135deg,
-              #07192d 0%,
-              #0c3157 55%,
-              #075985 100%
-            );
-          box-shadow: 0 18px 45px rgba(7, 25, 45, 0.18);
-        }
-
-        .payments-hero::after {
-          content: "";
-          position: absolute;
-          top: -90px;
-          right: -70px;
-          width: 230px;
-          height: 230px;
-          border: 34px solid rgba(255, 255, 255, 0.06);
-          border-radius: 50%;
-        }
-
-        .payments-kicker {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 10px;
-          color: #bae6fd;
-          font-size: 12px;
-          font-weight: 800;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-        }
-
-        .payments-hero h1 {
-          margin: 0;
-          font-size: clamp(28px, 3vw, 38px);
-          line-height: 1.1;
-          letter-spacing: -0.03em;
-        }
-
-        .payments-hero p {
-          max-width: 700px;
-          margin: 12px 0 0;
-          color: #e0f2fe;
-          font-size: 15px;
-          line-height: 1.65;
-        }
-
-        .payments-hero-status {
-          position: relative;
-          z-index: 1;
-          min-width: 210px;
-          padding: 17px 19px;
-          border: 1px solid rgba(255, 255, 255, 0.18);
-          border-radius: 16px;
-          background: rgba(255, 255, 255, 0.08);
-          backdrop-filter: blur(8px);
-        }
-
-        .payments-hero-status span {
-          display: block;
-          color: #bae6fd;
-          font-size: 11px;
-          font-weight: 800;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-        }
-
-        .payments-hero-status strong {
-          display: block;
-          margin-top: 7px;
-          font-size: 22px;
-        }
-
-        .payments-stats {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 15px;
-          margin-top: 20px;
-        }
-
-        .payments-stat-card {
-          padding: 19px;
-          border: 1px solid #e2e8f0;
-          border-radius: 18px;
-          background: white;
-          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
-        }
-
-        .payments-stat-top {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-        }
-
-        .payments-stat-card span {
-          display: block;
-          color: #64748b;
-          font-size: 11px;
-          font-weight: 800;
-          letter-spacing: 0.05em;
-          text-transform: uppercase;
-        }
-
-        .payments-stat-icon {
-          width: 38px;
-          height: 38px;
-          display: grid;
-          place-items: center;
-          border-radius: 12px;
-          background: #f0f9ff;
-          font-size: 18px;
-        }
-
-        .payments-stat-card strong {
-          display: block;
-          margin-top: 10px;
-          font-size: 25px;
-          letter-spacing: -0.03em;
-        }
-
-        .payments-panel {
-          margin-top: 20px;
-          padding: 22px;
-          border: 1px solid #e2e8f0;
-          border-radius: 20px;
-          background: white;
-          box-shadow: 0 12px 35px rgba(15, 23, 42, 0.07);
-        }
-
-        .payments-panel-heading {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 18px;
-          margin-bottom: 18px;
-        }
-
-        .payments-panel-heading h2 {
-          margin: 0;
-          font-size: 19px;
-          letter-spacing: -0.02em;
-        }
-
-        .payments-panel-heading p {
-          margin: 5px 0 0;
-          color: #64748b;
-          font-size: 13px;
-        }
-
-        .payments-not-connected {
-          display: inline-flex;
-          align-items: center;
-          padding: 8px 12px;
-          border-radius: 999px;
-          color: #b45309;
-          background: #fffbeb;
-          font-size: 11px;
-          font-weight: 800;
-          white-space: nowrap;
-        }
-
-        .payments-toolbar {
-          display: grid;
-          grid-template-columns: minmax(250px, 1fr) 180px 150px;
-          gap: 12px;
-          margin-bottom: 18px;
-        }
-
-        .payments-input,
-        .payments-select {
-          width: 100%;
-          height: 46px;
-          padding: 0 14px;
-          border: 1px solid #cbd5e1;
-          border-radius: 13px;
-          background: white;
-          color: #0f172a;
-          font-size: 13px;
-          outline: none;
-          transition: 0.2s ease;
-        }
-
-        .payments-input:focus,
-        .payments-select:focus {
-          border-color: #0284c7;
-          box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.1);
-        }
-
-        .payments-export-button {
-          height: 46px;
-          border: 1px solid #cbd5e1;
-          border-radius: 13px;
-          color: #334155;
-          background: white;
-          font-size: 13px;
-          font-weight: 800;
-          cursor: not-allowed;
-          opacity: 0.65;
-        }
-
-        .payments-table-wrapper {
-          overflow-x: auto;
-          border: 1px solid #e2e8f0;
-          border-radius: 16px;
-        }
-
-        .payments-table {
-          width: 100%;
-          min-width: 1100px;
-          border-collapse: collapse;
-        }
-
-        .payments-table th {
-          padding: 13px 15px;
-          border-bottom: 1px solid #e2e8f0;
-          color: #64748b;
-          background: #f8fafc;
-          font-size: 10px;
-          font-weight: 900;
-          letter-spacing: 0.06em;
-          text-align: left;
-          text-transform: uppercase;
-        }
-
-        .payments-table td {
-          padding: 15px;
-          border-bottom: 1px solid #eef2f7;
-          color: #475569;
-          font-size: 12px;
-          vertical-align: middle;
-        }
-
-        .payments-table tbody tr:last-child td {
-          border-bottom: none;
-        }
-
-        .payments-customer strong {
-          display: block;
-          color: #0f172a;
-          font-size: 13px;
-        }
-
-        .payments-customer span {
-          display: block;
-          margin-top: 4px;
-          color: #94a3b8;
-          font-size: 11px;
-        }
-
-        .payments-amount {
-          color: #0f172a;
-          font-size: 13px;
-          font-weight: 900;
-        }
-
-        .payments-status-badge {
-          display: inline-flex;
-          align-items: center;
-          padding: 6px 10px;
-          border-radius: 999px;
-          font-size: 10px;
-          font-weight: 900;
-        }
-
-        .payments-status-badge.pending {
-          color: #b45309;
-          background: #fffbeb;
-        }
-
-        .payments-status-badge.verified {
-          color: #047857;
-          background: #ecfdf5;
-        }
-
-        .payments-status-badge.rejected {
-          color: #b91c1c;
-          background: #fef2f2;
-        }
-
-        .payments-empty-state {
-          min-height: 390px;
-          display: grid;
-          place-items: center;
-          padding: 40px 20px;
-          text-align: center;
-        }
-
-        .payments-empty-icon {
-          width: 82px;
-          height: 82px;
-          display: grid;
-          place-items: center;
-          margin: 0 auto 17px;
-          border-radius: 24px;
-          background: #f0f9ff;
-          font-size: 37px;
-        }
-
-        .payments-empty-state h3 {
-          margin: 0;
-          color: #0f172a;
-          font-size: 21px;
-        }
-
-        .payments-empty-state p {
-          max-width: 520px;
-          margin: 10px auto 0;
-          color: #64748b;
-          font-size: 13px;
-          line-height: 1.65;
-        }
-
-        .payments-info-grid {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 14px;
-          margin-top: 20px;
-        }
-
-        .payments-info-card {
-          padding: 17px;
-          border: 1px solid #e2e8f0;
-          border-radius: 15px;
-          background: #f8fafc;
-        }
-
-        .payments-info-card strong {
-          display: block;
-          color: #0f172a;
-          font-size: 13px;
-        }
-
-        .payments-info-card p {
-          margin: 7px 0 0;
-          color: #64748b;
-          font-size: 12px;
-          line-height: 1.55;
-        }
-
-        @media (max-width: 1100px) {
-          .payments-stats {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
-          .payments-info-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        @media (max-width: 760px) {
-          .payments-page {
-            padding: 14px;
-          }
-
-          .payments-hero,
-          .payments-panel-heading {
-            align-items: flex-start;
-            flex-direction: column;
-          }
-
-          .payments-hero-status {
-            width: 100%;
-          }
-
-          .payments-toolbar {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        @media (max-width: 500px) {
-          .payments-stats {
-            grid-template-columns: 1fr;
-          }
-        }
+        .payments-page{min-height:100%;padding:26px;background:#f5f7fb;color:#0f172a;box-sizing:border-box}
+        .payments-page *{box-sizing:border-box}
+        .payments-hero{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:28px;border-radius:20px;background:linear-gradient(135deg,#07192d,#075985);color:white}
+        .payments-hero h1{margin:8px 0 0}.payments-hero p{margin:10px 0 0;color:#e0f2fe}
+        .payments-status{padding:14px 17px;border:1px solid rgba(255,255,255,.2);border-radius:14px;background:rgba(255,255,255,.08)}
+        .payments-status span{display:block;font-size:10px;color:#bae6fd;font-weight:800}.payments-status strong{display:block;margin-top:6px}
+        .payments-refresh{margin-top:10px;height:38px;padding:0 14px;border:1px solid rgba(255,255,255,.25);border-radius:10px;background:rgba(255,255,255,.1);color:white;font-weight:800;cursor:pointer}
+        .payments-message{margin-top:15px;padding:13px;border-radius:11px;background:#fef2f2;color:#b91c1c;font-weight:700}
+        .payments-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:18px}
+        .payments-stat,.payments-panel{background:white;border:1px solid #e2e8f0;border-radius:17px}
+        .payments-stat{padding:18px}.payments-stat span{display:block;color:#64748b;font-size:10px;font-weight:900}.payments-stat strong{display:block;margin-top:9px;font-size:24px}
+        .payments-panel{margin-top:18px;padding:20px}
+        .payments-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.payments-heading h2{margin:0}.payments-heading p{margin:5px 0 0;color:#64748b;font-size:12px}
+        .payments-connected{padding:7px 11px;border-radius:999px;background:#ecfdf5;color:#047857;font-size:10px;font-weight:900}
+        .payments-toolbar{display:grid;grid-template-columns:1fr 180px 140px;gap:10px;margin:16px 0}
+        .payments-input,.payments-select,.payments-button{height:43px;padding:0 12px;border:1px solid #cbd5e1;border-radius:10px;background:white}
+        .payments-button{font-weight:800;cursor:pointer}
+        .payments-table-wrap{overflow:auto;border:1px solid #e2e8f0;border-radius:13px}
+        .payments-table{width:100%;min-width:1050px;border-collapse:collapse}
+        .payments-table th{padding:12px;background:#f8fafc;color:#64748b;font-size:10px;text-align:left}
+        .payments-table td{padding:13px;border-top:1px solid #eef2f7;color:#475569;font-size:12px}
+        .payments-customer strong{display:block;color:#0f172a}.payments-customer span{display:block;margin-top:3px;color:#94a3b8}
+        .payments-amount{font-weight:900;color:#0f172a}
+        .payments-badge{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:10px;font-weight:900}
+        .pending{background:#fffbeb;color:#b45309}.verified{background:#ecfdf5;color:#047857}.rejected{background:#fef2f2;color:#b91c1c}
+        .payments-empty{padding:50px 20px;text-align:center;color:#64748b;font-weight:700}
+        @media(max-width:900px){.payments-stats{grid-template-columns:repeat(2,1fr)}.payments-toolbar{grid-template-columns:1fr}}
+        @media(max-width:600px){.payments-page{padding:14px}.payments-hero{align-items:flex-start;flex-direction:column}.payments-stats{grid-template-columns:1fr}}
       `}</style>
 
       <section className="payments-hero">
         <div>
-          <div className="payments-kicker">
-            <span>◆</span>
-            Financial Control Center
-          </div>
-
+          <small>FINANCIAL CONTROL CENTER</small>
           <h1>Payment Management</h1>
-
-          <p>
-            Customer recovery payments, receipts, executive
-            collections aur verification status ko ek hi jagah
-            manage karne ke liye premium payment module.
-          </p>
+          <p>Recovery payments, receipts aur verification status.</p>
         </div>
 
-        <div className="payments-hero-status">
-          <span>Payment Database</span>
-          <strong>Not Connected</strong>
+        <div className="payments-status">
+          <span>PAYMENT DATABASE</span>
+          <strong>Connected</strong>
+          <button
+            className="payments-refresh"
+            type="button"
+            disabled={loading || refreshing}
+            onClick={() => void loadPayments(true)}
+          >
+            {loading || refreshing ? "Refreshing..." : "Refresh"}
+          </button>
         </div>
       </section>
 
+      {message && <div className="payments-message">{message}</div>}
+
       <section className="payments-stats">
-        <article className="payments-stat-card">
-          <div className="payments-stat-top">
-            <span>Total Collection</span>
-            <div className="payments-stat-icon">₹</div>
-          </div>
+        <article className="payments-stat">
+          <span>TOTAL COLLECTION</span>
           <strong>{formatCurrency(totalAmount)}</strong>
         </article>
-
-        <article className="payments-stat-card">
-          <div className="payments-stat-top">
-            <span>Verified Amount</span>
-            <div className="payments-stat-icon">✓</div>
-          </div>
+        <article className="payments-stat">
+          <span>VERIFIED AMOUNT</span>
           <strong>{formatCurrency(verifiedAmount)}</strong>
         </article>
-
-        <article className="payments-stat-card">
-          <div className="payments-stat-top">
-            <span>Pending Verification</span>
-            <div className="payments-stat-icon">⌛</div>
-          </div>
+        <article className="payments-stat">
+          <span>PENDING VERIFICATION</span>
           <strong>{pendingCount}</strong>
         </article>
-
-        <article className="payments-stat-card">
-          <div className="payments-stat-top">
-            <span>Rejected Payments</span>
-            <div className="payments-stat-icon">!</div>
-          </div>
+        <article className="payments-stat">
+          <span>REJECTED PAYMENTS</span>
           <strong>{rejectedCount}</strong>
         </article>
       </section>
 
       <section className="payments-panel">
-        <div className="payments-panel-heading">
+        <div className="payments-heading">
           <div>
             <h2>Payment Records</h2>
-            <p>
-              Customer, case, executive aur receipt ke hisaab se
-              payment records manage karein.
-            </p>
+            <p>Real Supabase payment records.</p>
           </div>
-
-          <span className="payments-not-connected">
-            No payment data connected
-          </span>
+          <span className="payments-connected">{payments.length} records</span>
         </div>
 
         <div className="payments-toolbar">
           <input
             className="payments-input"
             value={search}
-            onChange={(event) =>
-              setSearch(event.target.value)
-            }
+            onChange={(event) => setSearch(event.target.value)}
             placeholder="Search customer, mobile, case, receipt..."
           />
 
           <select
             className="payments-select"
             value={statusFilter}
-            onChange={(event) =>
-              setStatusFilter(event.target.value as PaymentStatus)
-            }
+            onChange={(event) => setStatusFilter(event.target.value as PaymentStatus)}
           >
             <option value="All">All Status</option>
             <option value="Pending">Pending</option>
@@ -582,17 +370,15 @@ function PaymentsPage() {
             <option value="Rejected">Rejected</option>
           </select>
 
-          <button
-            className="payments-export-button"
-            type="button"
-            disabled
-          >
-            Export Payments
+          <button className="payments-button" type="button" onClick={() => void loadPayments(true)}>
+            Refresh
           </button>
         </div>
 
-        <div className="payments-table-wrapper">
-          {filteredPayments.length > 0 ? (
+        <div className="payments-table-wrap">
+          {loading ? (
+            <div className="payments-empty">Payment records load ho rahe hain...</div>
+          ) : filteredPayments.length > 0 ? (
             <table className="payments-table">
               <thead>
                 <tr>
@@ -612,32 +398,20 @@ function PaymentsPage() {
                 {filteredPayments.map((payment) => (
                   <tr key={payment.id}>
                     <td>{payment.receiptNumber}</td>
-
                     <td>
                       <div className="payments-customer">
                         <strong>{payment.customerName}</strong>
                         <span>{payment.mobile}</span>
                       </div>
                     </td>
-
                     <td>{payment.caseNumber}</td>
                     <td>{payment.bankName}</td>
                     <td>{payment.executiveName}</td>
                     <td>{payment.paymentDate}</td>
                     <td>{payment.paymentMode}</td>
-
+                    <td><span className="payments-amount">{formatCurrency(payment.amount)}</span></td>
                     <td>
-                      <span className="payments-amount">
-                        {formatCurrency(payment.amount)}
-                      </span>
-                    </td>
-
-                    <td>
-                      <span
-                        className={`payments-status-badge ${getStatusClass(
-                          payment.status
-                        )}`}
-                      >
+                      <span className={`payments-badge ${payment.status.toLowerCase()}`}>
                         {payment.status}
                       </span>
                     </td>
@@ -646,59 +420,8 @@ function PaymentsPage() {
               </tbody>
             </table>
           ) : (
-            <div className="payments-empty-state">
-              <div>
-                <div className="payments-empty-icon">₹</div>
-
-                <h3>No Payment Records Connected</h3>
-
-                <p>
-                  Abhi koi fake payment ya sample collection record
-                  show nahi kiya gaya hai. Supabase payment database
-                  connect hone ke baad real payment records yahan
-                  automatically दिखाई देंगे.
-                </p>
-              </div>
-            </div>
+            <div className="payments-empty">Abhi koi payment record nahi hai.</div>
           )}
-        </div>
-      </section>
-
-      <section className="payments-panel">
-        <div className="payments-panel-heading">
-          <div>
-            <h2>Payment Verification Rules</h2>
-            <p>
-              Real payment integration ke waqt ye controls use
-              honge.
-            </p>
-          </div>
-        </div>
-
-        <div className="payments-info-grid">
-          <article className="payments-info-card">
-            <strong>Receipt Verification</strong>
-            <p>
-              Har payment ke saath unique receipt number aur
-              executive details verify ki jayengi.
-            </p>
-          </article>
-
-          <article className="payments-info-card">
-            <strong>Case Matching</strong>
-            <p>
-              Payment ko customer ke correct recovery case aur bank
-              account ke saath link kiya jayega.
-            </p>
-          </article>
-
-          <article className="payments-info-card">
-            <strong>Approval Control</strong>
-            <p>
-              Pending payment ko authorised verification ke baad hi
-              verified collection me count kiya jayega.
-            </p>
-          </article>
         </div>
       </section>
     </div>
@@ -706,4 +429,3 @@ function PaymentsPage() {
 }
 
 export default PaymentsPage;
-
