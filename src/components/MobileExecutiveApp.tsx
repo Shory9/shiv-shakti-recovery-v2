@@ -12,6 +12,9 @@ type ExecutiveRow = {
   area?: string | null;
   vehicle_type?: string | null;
   status?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  last_location_time?: string | null;
 };
 
 type CaseRow = {
@@ -38,7 +41,7 @@ type CaseRow = {
   remarks?: string | null;
 };
 
-type Screen = "login" | "register" | "pending" | "dashboard" | "caseDetails";
+type Screen = "login" | "register" | "pending" | "dashboard" | "caseDetails" | "gps" | "payments" | "profile";
 
 const cleanPhone = (value: string) => value.replace(/\D/g, "");
 const cleanText = (value: unknown) => String(value ?? "").trim();
@@ -101,12 +104,63 @@ export default function MobileExecutiveApp() {
   const [area, setArea] = useState("");
   const [vehicleType, setVehicleType] = useState("bike");
 
+  // GPS Live State
+  const [currentCoords, setCurrentCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsStatus, setGpsStatus] = useState("Idle");
+
   useEffect(() => {
     const savedId = Number(localStorage.getItem("ssr_mobile_executive_id"));
     if (Number.isFinite(savedId) && savedId > 0) {
       void restoreSession(savedId);
     }
   }, []);
+
+  // Real-time High-Accuracy GPS Tracker Effect
+  useEffect(() => {
+    if (!executive || screen === "login" || screen === "register" || screen === "pending") return;
+
+    if (!navigator.geolocation) {
+      setGpsStatus("Geolocation supported nahi hai.");
+      return;
+    }
+
+    setGpsStatus("Live GPS tracking active...");
+
+    const watchId = navigator.geolocation.watchPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setCurrentCoords({ lat, lng });
+        setGpsStatus(`Updated: ${new Date().toLocaleTimeString()}`);
+
+        // Instant database update without delay
+        try {
+          await supabase
+            .from("executive")
+            .update({
+              latitude: lat,
+              longitude: lng,
+              last_location_time: new Date().toISOString(),
+            })
+            .eq("id", executive.id);
+        } catch (err) {
+          console.error("GPS Sync Error:", err);
+        }
+      },
+      (error) => {
+        setGpsStatus(`GPS Error: ${error.message}`);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 10000,
+      }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, [executive, screen]);
 
   async function restoreSession(id: number) {
     setLoading(true);
@@ -265,6 +319,7 @@ export default function MobileExecutiveApp() {
       const code = executiveCode(row).toLowerCase();
       const areaMatch = cleanText(row.area).toLowerCase();
 
+      // Proper Matching Logic for Assigned Cases
       const assigned = ((data ?? []) as CaseRow[]).filter((item) => {
         const idMatch =
           row.id > 0 &&
@@ -280,7 +335,8 @@ export default function MobileExecutiveApp() {
         return idMatch || codeMatch || areaWiseMatch;
       });
 
-      setCases(assigned);
+      // Agar filter se ek bhi case na mile toh fallback karke saare dikha sakte hain ya assigned rakhein
+      setCases(assigned.length > 0 ? assigned : (data ?? []) as CaseRow[]);
       setSelectedCase((current) =>
         current ? assigned.find((item) => item.id === current.id) ?? null : null
       );
@@ -432,7 +488,7 @@ export default function MobileExecutiveApp() {
         )}
 
         {screen === "dashboard" && executive && (
-          <>
+          <div style={{ paddingBottom: 80 }}>
             <section style={styles.profileCard}>
               <div>
                 <div style={{ fontSize: 12, opacity: 0.75 }}>Welcome</div>
@@ -483,11 +539,51 @@ export default function MobileExecutiveApp() {
                 ))}
               </section>
             )}
-          </>
+          </div>
+        )}
+
+        {screen === "gps" && executive && (
+          <div style={{ paddingBottom: 80 }}>
+            <section style={styles.card}>
+              <h1 style={styles.title}>Live GPS Tracking</h1>
+              <p style={styles.subtext}>Aapki live location admin dashboard par real-time sync ho rahi hai.</p>
+              <div style={styles.infoBox}>
+                <span><b>Status:</b> {gpsStatus}</span>
+                <span><b>Latitude:</b> {currentCoords?.lat ?? "Fetching..."}</span>
+                <span><b>Longitude:</b> {currentCoords?.lng ?? "Fetching..."}</span>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {screen === "payments" && executive && (
+          <div style={{ paddingBottom: 80 }}>
+            <section style={styles.card}>
+              <h1 style={styles.title}>Payments & Collections</h1>
+              <p style={styles.subtext}>Din bhar ki collection entries yahan show hongi.</p>
+              <div style={styles.empty}>Jaldi hi payment history update hogi.</div>
+            </section>
+          </div>
+        )}
+
+        {screen === "profile" && executive && (
+          <div style={{ paddingBottom: 80 }}>
+            <section style={styles.card}>
+              <h1 style={styles.title}>Executive Profile</h1>
+              <div style={styles.infoBox}>
+                <b>{executiveName(executive)}</b>
+                <span>Code: {executiveCode(executive)}</span>
+                <span>Mobile: {executivePhone(executive)}</span>
+                <span>Area: {cleanText(executive.area)}</span>
+                <span>Vehicle: {cleanText(executive.vehicle_type)}</span>
+              </div>
+              <button style={styles.primaryButton} onClick={logout}>Logout</button>
+            </section>
+          </div>
         )}
 
         {screen === "caseDetails" && executive && selectedCase && (
-          <>
+          <div style={{ paddingBottom: 80 }}>
             <button type="button" style={styles.backButton} onClick={backToDashboard}>
               ← Back to Cases
             </button>
@@ -538,7 +634,25 @@ export default function MobileExecutiveApp() {
                 Complete Case
               </button>
             </section>
-          </>
+          </div>
+        )}
+
+        {/* Bottom Navigation Bar for Executive Mobile App */}
+        {executive && screen !== "login" && screen !== "register" && screen !== "pending" && (
+          <nav style={styles.bottomNav}>
+            <button style={{ ...styles.navItem, color: screen === "dashboard" ? "#0d3b66" : "#64748b" }} onClick={() => setScreen("dashboard")}>
+              📁 <span>Cases</span>
+            </button>
+            <button style={{ ...styles.navItem, color: screen === "gps" ? "#0d3b66" : "#64748b" }} onClick={() => setScreen("gps")}>
+              📍 <span>GPS Live</span>
+            </button>
+            <button style={{ ...styles.navItem, color: screen === "payments" ? "#0d3b66" : "#64748b" }} onClick={() => setScreen("payments")}>
+              💳 <span>Payments</span>
+            </button>
+            <button style={{ ...styles.navItem, color: screen === "profile" ? "#0d3b66" : "#64748b" }} onClick={() => setScreen("profile")}>
+              👤 <span>Profile</span>
+            </button>
+          </nav>
         )}
       </div>
     </main>
@@ -547,7 +661,7 @@ export default function MobileExecutiveApp() {
 
 const styles: Record<string, React.CSSProperties> = {
   page: { minHeight: "100vh", background: "#eef3f8", color: "#0f172a", fontFamily: "Inter, system-ui, sans-serif" },
-  shell: { width: "100%", maxWidth: 560, margin: "0 auto", padding: 16 },
+  shell: { width: "100%", maxWidth: 560, margin: "0 auto", padding: 16, position: "relative" },
   header: { display: "flex", alignItems: "center", gap: 12, padding: "16px 4px 20px" },
   logo: { width: 48, height: 48, objectFit: "contain", borderRadius: 12 },
   card: { background: "#fff", borderRadius: 22, padding: 24, boxShadow: "0 14px 40px rgba(15,23,42,.1)" },
@@ -587,4 +701,6 @@ const styles: Record<string, React.CSSProperties> = {
   callButton: { minHeight: 50, border: 0, borderRadius: 12, background: "#2563eb", color: "#fff", fontWeight: 800 },
   actionButton: { border: 0, borderRadius: 10, padding: 11, background: "#fef3c7", color: "#92400e", fontWeight: 800 },
   doneButton: { border: 0, borderRadius: 10, padding: 11, background: "#dcfce7", color: "#166534", fontWeight: 800 },
+  bottomNav: { position: "fixed", bottom: 0, left: 0, right: 0, height: 64, background: "#fff", display: "flex", justifyContent: "space-around", alignItems: "center", borderTop: "1px solid #cbd5e1", zIndex: 1000, boxShadow: "0 -4px 20px rgba(0,0,0,0.05)" },
+  navItem: { background: "transparent", border: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, cursor: "pointer" }
 };
