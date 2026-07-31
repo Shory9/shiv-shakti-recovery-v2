@@ -110,8 +110,9 @@ export default function ExecutivesPage(): React.ReactElement {
 
       const generatedCode = `SS${Math.floor(100000 + Math.random() * 900000)}`;
 
+      // ✅ YAHAN user_role: "executive" ADD KAR DIYA GAYA HAI
       const newExec = {
-        id: crypto.randomUUID(), // ✅ YEH LINE ADD KI HAI - UUID generate karega
+        id: crypto.randomUUID(),
         executive_code: generatedCode,
         full_name: fullName.trim(),
         phone: phone.trim(),
@@ -119,6 +120,7 @@ export default function ExecutivesPage(): React.ReactElement {
         vehicle_type: vehicleType,
         status: "active",
         role: "executive",
+        user_role: "executive", 
       };
 
       const { error } = await supabase.from("profiles").insert([newExec]);
