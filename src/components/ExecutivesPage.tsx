@@ -111,6 +111,7 @@ export default function ExecutivesPage(): React.ReactElement {
       const generatedCode = `SS${Math.floor(100000 + Math.random() * 900000)}`;
 
       const newExec = {
+        id: crypto.randomUUID(), // ✅ YEH LINE ADD KI HAI - UUID generate karega
         executive_code: generatedCode,
         full_name: fullName.trim(),
         phone: phone.trim(),
