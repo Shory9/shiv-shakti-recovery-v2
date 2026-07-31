@@ -13,7 +13,6 @@ type ExecutiveRow = {
   agent_code?: string | null;
   full_name?: string | null;
   name?: string | null;
-  phone?: string | null;
   mobile?: string | null;
   area?: string | null;
   vehicle_type?: string | null;
@@ -69,6 +68,18 @@ const CASE_BATCH_SIZE = 1000;
 const cleanText = (value: unknown) => String(value ?? "").trim();
 const cleanPhone = (value: unknown) => cleanText(value).replace(/\D/g, "");
 
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+
+  if (error && typeof error === "object" && "message" in error) {
+    const message = cleanText((error as { message?: unknown }).message);
+    if (message) return message;
+  }
+
+  return fallback;
+}
+
 function executiveCode(row: ExecutiveRow) {
   return cleanText(row.executive_code || row.agent_code || `SS${row.id}`);
 }
@@ -78,7 +89,7 @@ function executiveName(row: ExecutiveRow) {
 }
 
 function executivePhone(row: ExecutiveRow) {
-  return cleanPhone(row.phone || row.mobile);
+  return cleanPhone(row.mobile);
 }
 
 function isApproved(row: ExecutiveRow) {
@@ -290,8 +301,9 @@ export default function MobileExecutiveApp() {
 
     const name = fullName.trim();
     const phone = cleanPhone(registerPhone);
+    const executiveArea = area.trim();
 
-    if (!name || phone.length < 10 || !area.trim()) {
+    if (!name || phone.length < 10 || !executiveArea) {
       setMessage("Name, valid mobile number aur area required hai.");
       return;
     }
@@ -302,7 +314,7 @@ export default function MobileExecutiveApp() {
     try {
       const { data: existing, error: existingError } = await supabase
         .from("executives")
-        .select("*");
+        .select("id, executive_code, mobile");
 
       if (existingError) throw existingError;
 
@@ -319,21 +331,44 @@ export default function MobileExecutiveApp() {
       }, 0);
 
       const generatedCode = `SS${String(maxNumber + 1).padStart(3, "0")}`;
+      const authEmail = `${phone}@executive.shivshaktirecovery.in`;
+      const authPassword = `${crypto.randomUUID()}Aa1!`;
+
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: authEmail,
+        password: authPassword,
+        options: {
+          data: {
+            full_name: name,
+            mobile: phone,
+            role: "executive",
+          },
+        },
+      });
+
+      if (authError) throw authError;
+      if (!authData.user?.id) {
+        throw new Error("Executive auth account create nahi hua.");
+      }
 
       const { data, error } = await supabase
         .from("executives")
         .insert({
+          id: authData.user.id,
           executive_code: generatedCode,
           full_name: name,
-          phone,
-          area: area.trim(),
+          mobile: phone,
+          area: executiveArea,
           vehicle_type: vehicleType,
           status: "pending",
         })
         .select("*")
         .single();
 
-      if (error) throw error;
+      if (error) {
+        await supabase.auth.signOut();
+        throw error;
+      }
 
       const pendingExecutive = data as ExecutiveRow;
       setExecutive(pendingExecutive);
@@ -345,9 +380,7 @@ export default function MobileExecutiveApp() {
       setMessage(`Registration successful. Aapka code ${generatedCode} hai.`);
     } catch (error) {
       console.error("Registration error:", error);
-      setMessage(
-        error instanceof Error ? error.message : "Registration fail ho gaya."
-      );
+      setMessage(errorMessage(error, "Registration fail ho gaya."));
     } finally {
       setLoading(false);
     }
@@ -456,6 +489,7 @@ export default function MobileExecutiveApp() {
   }
 
   function logout() {
+    void supabase.auth.signOut();
     localStorage.removeItem("ssr_mobile_executive_id");
     setExecutive(null);
     setCases([]);
