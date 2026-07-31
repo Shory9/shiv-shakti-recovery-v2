@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { supabase } from "../supabaseClient";
 
 type Executive = {
@@ -34,6 +35,7 @@ export default function ExecutivesPage(): React.ReactElement {
   // Form State
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
   const [selectedArea, setSelectedArea] = useState("CRPF Neemuch");
   const [customArea, setCustomArea] = useState("");
   const [vehicleType, setVehicleType] = useState("car");
@@ -83,8 +85,22 @@ export default function ExecutivesPage(): React.ReactElement {
   const handleAddExecutive = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!fullName.trim() || !phone.trim()) {
+    const cleanName = fullName.trim();
+    const cleanPhone = phone.replace(/\D/g, "");
+    const cleanPassword = password.trim();
+
+    if (!cleanName || !cleanPhone) {
       alert("Please enter full name and phone number.");
+      return;
+    }
+
+    if (cleanPhone.length < 10) {
+      alert("Please enter a valid phone number.");
+      return;
+    }
+
+    if (cleanPassword.length < 6) {
+      alert("Password minimum 6 characters ka rakho.");
       return;
     }
 
@@ -101,38 +117,75 @@ export default function ExecutivesPage(): React.ReactElement {
     setIsAdding(true);
 
     try {
-      const normalizedPhone = phone.trim();
-      const duplicate = executives.some((item) => item.phone.trim() === normalizedPhone);
+      const duplicate = executives.some(
+        (item) => item.phone.replace(/\D/g, "") === cleanPhone
+      );
+
       if (duplicate) {
         alert("Is phone number se executive pehle se registered hai.");
         return;
       }
 
       const generatedCode = `SS${Math.floor(100000 + Math.random() * 900000)}`;
+      const loginEmail = `${cleanPhone}@shivshaktirecovery.in`;
 
-      // ✅ YAHAN user_role: "executive" ADD KAR DIYA GAYA HAI
-      const newExec = {
-        id: crypto.randomUUID(),
+      const clientConfig = supabase as any;
+      const signupClient = createClient(
+        clientConfig.supabaseUrl,
+        clientConfig.supabaseKey,
+        {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+          },
+        }
+      );
+
+      const { data: authData, error: authError } =
+        await signupClient.auth.signUp({
+          email: loginEmail,
+          password: cleanPassword,
+          options: {
+            data: {
+              full_name: cleanName,
+              phone: cleanPhone,
+              role: "executive",
+            },
+          },
+        });
+
+      if (authError) throw authError;
+      if (!authData.user?.id) {
+        throw new Error("Executive Auth user create nahi hua.");
+      }
+
+      const profileData = {
+        id: authData.user.id,
         executive_code: generatedCode,
-        full_name: fullName.trim(),
-        phone: phone.trim(),
+        full_name: cleanName,
+        mobile: cleanPhone,
+        phone: cleanPhone,
         area: finalArea,
         vehicle_type: vehicleType,
         status: "active",
         role: "executive",
-        user_role: "executive", 
+        is_active: true,
       };
 
-      const { error } = await supabase.from("profiles").insert([newExec]);
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .upsert(profileData, { onConflict: "id" });
 
-      if (error) throw error;
+      if (profileError) throw profileError;
 
       alert(
-        `Executive ${fullName.trim()} added successfully for ${finalArea}! Code: ${generatedCode}`
+        `Executive added successfully!\n\nLogin: ${loginEmail}\nPassword: ${cleanPassword}\nCode: ${generatedCode}`
       );
 
       setFullName("");
       setPhone("");
+      setPassword("");
       setCustomArea("");
       setSelectedArea("CRPF Neemuch");
       setVehicleType("car");
@@ -318,6 +371,20 @@ export default function ExecutivesPage(): React.ReactElement {
               borderRadius: "6px",
               border: "1px solid #cbd5e1",
               flex: "1 1 140px",
+              fontSize: "13px",
+            }}
+          />
+
+          <input
+            type="password"
+            placeholder="Login Password (minimum 6)"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={{
+              padding: "8px 12px",
+              borderRadius: "6px",
+              border: "1px solid #cbd5e1",
+              flex: "1 1 160px",
               fontSize: "13px",
             }}
           />
