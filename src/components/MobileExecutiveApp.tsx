@@ -87,6 +87,7 @@ function isApproved(row: ExecutiveRow) {
   return status === "active" || status === "approved" || status === "online";
 }
 
+
 function caseNumber(row: CaseRow) {
   return cleanText(row.account_number || `ID ${row.id}`);
 }
