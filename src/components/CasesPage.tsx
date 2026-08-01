@@ -4,44 +4,37 @@ import { supabase } from "../supabaseClient";
 type CaseStatus = "Pending" | "Visited" | "Paid" | "Overdue";
 
 type SupabaseCase = {
-  id: number;
-  case_no?: string | null;
-  case_number?: string | null;
-  account_no?: string | null;
-  customer_name?: string | null;
-  customer?: string | null;
-  phone?: string | null;
-  mobile?: string | null;
+  id: string;
+  account_number?: string | null;
+  account_name?: string | null;
+  mobile_number?: string | null;
   bank_name?: string | null;
-  bank?: string | null;
-  area?: string | null;
+  branch?: string | null;
+  balance_inr?: number | string | null;
+  customer_balance?: number | string | null;
+  assigned_executive_id?: string | null;
   assigned_executive?: string | null;
-  assigned_agent?: number | string | null;
-  executive_id?: number | string | null;
-  executive?: string | null;
-  loan_amount?: number | string | null;
-  outstanding_amount?: number | string | null;
-  amount?: number | string | null;
+  executive_code?: string | null;
+  remarks?: string | null;
   status?: string | null;
 };
 
 type ProfileRow = {
-  id: number | string;
+  id: string;
   executive_code?: string | null;
-  name?: string | null;
   full_name?: string | null;
-  executive_name?: string | null;
   area?: string | null;
   status?: string | null;
 };
 
 type CaseItem = {
-  id: number;
+  id: string;
   accountNo: string;
   customer: string;
   mobile: string;
   bank: string;
   area: string;
+  executiveId: string;
   executiveCode: string;
   executive: string;
   amount: number;
@@ -53,7 +46,7 @@ type EditForm = {
   mobile: string;
   bank: string;
   area: string;
-  executiveCode: string;
+  executiveId: string;
   amount: string;
   status: CaseStatus;
 };
@@ -103,33 +96,31 @@ function CasesPage() {
     mobile: "",
     bank: "",
     area: "",
-    executiveCode: "",
+    executiveId: "",
     amount: "",
     status: "Pending",
   });
 
-  // Map for display names (Strict single executive_code standard)
   const executiveNameMap = useMemo(() => {
     const map = new Map<string, string>();
-    executives.forEach((item) => {
-      const name =
-        item.full_name?.trim() ||
-        item.name?.trim() ||
-        item.executive_name?.trim() ||
-        "Unknown Executive";
 
+    executives.forEach((item) => {
+      const name = item.full_name?.trim() || "Unknown Executive";
       const code = item.executive_code?.trim() || "";
+
+      map.set(String(item.id), code ? `${code} - ${name}` : name);
+
       if (code) {
         map.set(code.toLowerCase(), `${code} - ${name}`);
-        map.set(String(item.id), `${code} - ${name}`);
       }
     });
+
     return map;
   }, [executives]);
 
   async function loadExecutives() {
     const { data, error: executiveError } = await supabase
-      .from("profiles")
+      .from("executives")
       .select("*")
       .order("id", { ascending: true });
 
@@ -137,11 +128,8 @@ function CasesPage() {
 
     const profileRows = (data ?? []) as ProfileRow[];
     const executiveRows = profileRows.filter((item) => {
-      const role = String((item as ProfileRow & { role?: string | null }).role ?? "")
-        .trim()
-        .toLowerCase();
-
-      return Boolean(item.executive_code?.trim()) || role === "executive" || role === "agent";
+      const currentStatus = String(item.status ?? "").trim().toLowerCase();
+      return currentStatus === "active" || currentStatus === "approved";
     });
 
     setExecutives(executiveRows);
@@ -170,34 +158,50 @@ function CasesPage() {
 
     const activeExecutives = executiveRows ?? executives;
     const nameMap = new Map<string, string>();
+    const codeById = new Map<string, string>();
+
     activeExecutives.forEach((item) => {
-      const name = item.full_name?.trim() || item.name?.trim() || "Unknown Executive";
+      const name = item.full_name?.trim() || "Unknown Executive";
       const code = item.executive_code?.trim() || "";
+      const displayName = code ? `${code} - ${name}` : name;
+
+      nameMap.set(String(item.id), displayName);
+      codeById.set(String(item.id), code);
+
       if (code) {
-        nameMap.set(code.toLowerCase(), `${code} ${name}`);
-        nameMap.set(String(item.id), `${code} ${name}`);
+        nameMap.set(code.toLowerCase(), displayName);
       }
     });
 
     const mapped: CaseItem[] = rows.map((item) => {
-      const assigned = item.assigned_executive ?? item.assigned_agent ?? item.executive_id ?? "";
-      const assignedKey = String(assigned ?? "").trim();
-      const directExecutive = item.executive?.trim() || "";
+      const executiveId = String(item.assigned_executive_id ?? "").trim();
+      const executiveCode = String(item.executive_code ?? "").trim();
+
+      const resolvedAreaMatch = String(item.remarks ?? "").match(
+        /Resolved Area:\s*([^|]+)/i
+      );
+      const resolvedArea =
+        resolvedAreaMatch?.[1]?.trim() ||
+        String(item.branch ?? "").trim() ||
+        "Unassigned";
+
+      const executiveDisplay =
+        (executiveId && nameMap.get(executiveId)) ||
+        (executiveCode && nameMap.get(executiveCode.toLowerCase())) ||
+        String(item.assigned_executive ?? "").trim() ||
+        "Unassigned";
 
       return {
-        id: Number(item.id),
-        accountNo: String(item.case_no ?? item.case_number ?? item.account_no ?? "-"),
-        customer: String(item.customer_name ?? item.customer ?? "Unknown"),
-        mobile: String(item.phone ?? item.mobile ?? "-"),
-        bank: String(item.bank_name ?? item.bank ?? "-"),
-        area: String(item.area ?? "Unassigned"),
-        executiveCode: assignedKey,
-        executive:
-          directExecutive ||
-          (assignedKey ? nameMap.get(assignedKey.toLowerCase()) || nameMap.get(assignedKey) || assignedKey : "Unassigned"),
-        amount: toNumber(
-          item.loan_amount ?? item.outstanding_amount ?? item.amount ?? 0
-        ),
+        id: String(item.id),
+        accountNo: String(item.account_number ?? "-"),
+        customer: String(item.account_name ?? "Unknown"),
+        mobile: String(item.mobile_number ?? "-"),
+        bank: String(item.bank_name ?? "-"),
+        area: resolvedArea,
+        executiveId,
+        executiveCode: executiveCode || codeById.get(executiveId) || "",
+        executive: executiveDisplay,
+        amount: toNumber(item.balance_inr ?? item.customer_balance ?? 0),
         status: normalizeStatus(item.status),
       };
     });
@@ -209,12 +213,22 @@ function CasesPage() {
     setLoading(true);
     setError("");
 
+    let executiveRows: ProfileRow[] = [];
+
     try {
-      const executiveRows = await loadExecutives();
+      executiveRows = await loadExecutives();
+    } catch (err) {
+      console.error("Executives load error:", err);
+      setExecutives([]);
+    }
+
+    try {
       await loadAllCases(executiveRows);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Cases load nahi ho paaye.";
+      console.error("Cases load error:", err);
       setError(message);
+      setCases([]);
     } finally {
       setLoading(false);
     }
@@ -232,7 +246,7 @@ function CasesPage() {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "profiles" },
+        { event: "*", schema: "public", table: "executives" },
         () => void refreshData()
       )
       .subscribe();
@@ -299,7 +313,7 @@ function CasesPage() {
       mobile: item.mobile === "-" ? "" : item.mobile,
       bank: item.bank === "-" ? "" : item.bank,
       area: item.area === "Unassigned" ? "" : item.area,
-      executiveCode: item.executiveCode,
+      executiveId: item.executiveId,
       amount: String(item.amount),
       status: item.status,
     });
@@ -315,18 +329,31 @@ function CasesPage() {
     setSuccess("");
 
     try {
-      const execCode = editForm.executiveCode.trim() || null;
+      const executiveId = editForm.executiveId.trim() || null;
+      const selectedExecutive = executives.find(
+        (item) => String(item.id) === executiveId
+      );
+      const executiveCode =
+        selectedExecutive?.executive_code?.trim() || null;
+      const executiveDisplay = selectedExecutive
+        ? `${executiveCode ? `${executiveCode} - ` : ""}${
+            selectedExecutive.full_name?.trim() || "Unknown Executive"
+          }`
+        : null;
+
+      const areaText = editForm.area.trim() || "Unassigned";
 
       const payload = {
-        customer_name: editForm.customer.trim(),
-        phone: editForm.mobile.trim() || null,
-        mobile: editForm.mobile.trim() || null,
+        account_name: editForm.customer.trim(),
+        mobile_number: editForm.mobile.trim() || null,
         bank_name: editForm.bank.trim() || null,
-        area: editForm.area.trim() || null,
-        assigned_executive: execCode,
-        assigned_agent: execCode,
-        loan_amount: toNumber(editForm.amount),
-        status: editForm.status,
+        branch: areaText === "Unassigned" ? null : areaText,
+        assigned_executive_id: executiveId,
+        assigned_executive: executiveDisplay,
+        executive_code: executiveCode,
+        balance_inr: toNumber(editForm.amount),
+        status: editForm.status.toLowerCase(),
+        remarks: `Resolved Area: ${areaText}`,
       };
 
       const { error: updateError } = await supabase
@@ -336,8 +363,8 @@ function CasesPage() {
 
       if (updateError) throw updateError;
 
-      const executiveName = execCode
-        ? executiveNameMap.get(execCode.toLowerCase()) || execCode
+      const executiveName = executiveId
+        ? executiveNameMap.get(executiveId) || executiveDisplay || "Unassigned"
         : "Unassigned";
 
       setCases((current) =>
@@ -345,14 +372,15 @@ function CasesPage() {
           item.id === editCase.id
             ? {
                 ...item,
-                customer: payload.customer_name || "Unknown",
-                mobile: payload.phone || "-",
+                customer: payload.account_name || "Unknown",
+                mobile: payload.mobile_number || "-",
                 bank: payload.bank_name || "-",
-                area: payload.area || "Unassigned",
-                executiveCode: execCode || "",
+                area: areaText,
+                executiveId: executiveId || "",
+                executiveCode: executiveCode || "",
                 executive: executiveName,
-                amount: payload.loan_amount,
-                status: payload.status,
+                amount: payload.balance_inr,
+                status: normalizeStatus(payload.status),
               }
             : item
         )
@@ -451,7 +479,7 @@ function CasesPage() {
         <div className="cases-field"><label>Mobile</label><input className="cases-input" value={editForm.mobile} onChange={(event) => setEditForm((current) => ({ ...current, mobile: event.target.value }))} /></div>
         <div className="cases-field"><label>Bank</label><input className="cases-input" value={editForm.bank} onChange={(event) => setEditForm((current) => ({ ...current, bank: event.target.value }))} /></div>
         <div className="cases-field"><label>Area</label><input className="cases-input" value={editForm.area} onChange={(event) => setEditForm((current) => ({ ...current, area: event.target.value }))} /></div>
-        <div className="cases-field"><label>Assigned Executive</label><select className="cases-select" value={editForm.executiveCode} onChange={(event) => setEditForm((current) => ({ ...current, executiveCode: event.target.value }))}><option value="">Unassigned</option>{executives.map((item) => { const code = item.executive_code || ""; if (!code) return null; return <option key={String(item.id)} value={code}>{code} - {item.full_name || item.name || "Unknown Executive"}</option>; })}</select></div>
+        <div className="cases-field"><label>Assigned Executive</label><select className="cases-select" value={editForm.executiveId} onChange={(event) => setEditForm((current) => ({ ...current, executiveId: event.target.value }))}><option value="">Unassigned</option>{executives.map((item) => { const code = item.executive_code || ""; return <option key={String(item.id)} value={String(item.id)}>{code ? `${code} - ` : ""}{item.full_name || "Unknown Executive"}</option>; })}</select></div>
         <div className="cases-field"><label>Outstanding Amount</label><input type="number" min="0" step="0.01" className="cases-input" value={editForm.amount} onChange={(event) => setEditForm((current) => ({ ...current, amount: event.target.value }))} /></div>
         <div className="cases-field"><label>Status</label><select className="cases-select" value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as CaseStatus }))}>{statusOptions.filter((item) => item !== "All").map((item) => <option key={item}>{item}</option>)}</select></div>
       </div><div className="cases-modal-actions"><button disabled={saving} onClick={() => setEditCase(null)}>Cancel</button><button className="save" disabled={saving || !editForm.customer.trim()} onClick={() => void saveCase()}>{saving ? "Saving..." : "Save Changes"}</button></div></div></div>}

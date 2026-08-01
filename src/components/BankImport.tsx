@@ -1,0 +1,701 @@
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
+import * as XLSX from "xlsx";
+import { supabase } from "../supabaseClient";
+import { normalizeText, resolveCaseArea } from "../utils/caseImport";
+
+type ExcelRow = Record<string, unknown>;
+
+type Executive = {
+  id: string;
+  executive_code: string | null;
+  full_name: string | null;
+  area: string | null;
+  status: string | null;
+};
+
+type ExistingCase = {
+  account_number: string | null;
+  assigned_executive_id: string | null;
+};
+
+type ImportCase = {
+  sn: number | null;
+  caseType: string | null;
+  alpha: string | null;
+  solId: string | null;
+  branch: string | null;
+  customerId: string | null;
+  accountNumber: string;
+  accountName: string;
+  sanctionLimit: number;
+  sanctionDate: string | null;
+  schemeCode: string | null;
+  revSeg: string | null;
+  balanceInr: number;
+  customerBalance: number;
+  ecgcReceivable: number;
+  assetClass: string | null;
+  npaDate: string | null;
+  two: string | null;
+  fraud: string | null;
+  totalProvision: number;
+  address: string | null;
+  mobileNumber: string | null;
+  resolvedArea: string;
+  isExisting: boolean;
+};
+
+type MarketSummary = {
+  area: string;
+  total: number;
+  newCases: number;
+  alreadyAssigned: number;
+  executives: Executive[];
+};
+
+const EXPECTED_HEADERS = [
+  "SN", "TYPE", "Alpha", "SOL ID", "Branch", "Cust ID",
+  "A/C No", "A/C Name", "Sanction Limit", "Sanction Date",
+  "Scheme Code", "REV SEG", "Balance [INR]", "Cust. Bal",
+  "ECGC Rece", "Class", "NPA Date", "TWO", "Fraud",
+  "Total Provision", "ADDRESS", "MOBILE NO",
+] as const;
+
+const normalizeHeader = (value: unknown): string =>
+  String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const normalizeAccount = (value: unknown): string =>
+  String(value ?? "").trim().toLowerCase();
+
+const textValue = (value: unknown): string | null => {
+  const text = String(value ?? "").trim();
+  return text || null;
+};
+
+const numberValue = (value: unknown): number => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const cleaned = String(value ?? "")
+    .replace(/,/g, "")
+    .replace(/[^0-9.-]/g, "")
+    .trim();
+  if (!cleaned) return 0;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const integerValue = (value: unknown): number | null => {
+  const parsed = numberValue(value);
+  return Number.isFinite(parsed) && parsed !== 0 ? Math.trunc(parsed) : null;
+};
+
+const excelDateValue = (value: unknown): string | null => {
+  if (value === null || value === undefined || value === "") return null;
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  if (typeof value === "number") {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed) {
+      return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+    }
+  }
+
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (match) {
+    const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+    return `${year}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+  }
+
+  const parsedDate = new Date(raw);
+  return Number.isNaN(parsedDate.getTime())
+    ? null
+    : parsedDate.toISOString().slice(0, 10);
+};
+
+const getExactValue = (row: ExcelRow, expectedHeader: string): unknown => {
+  const expected = normalizeHeader(expectedHeader);
+  const matchingKey = Object.keys(row).find(
+    (key) => normalizeHeader(key) === expected
+  );
+  return matchingKey ? row[matchingKey] : "";
+};
+
+function isActiveExecutive(executive: Executive): boolean {
+  const status = String(executive.status ?? "").trim().toLowerCase();
+  return status === "active" || status === "approved";
+}
+
+function formatExecutive(executive: Executive): string {
+  return `${executive.executive_code || "NO CODE"} ${executive.full_name || "Executive"}`;
+}
+
+function BankImport(): React.ReactElement {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [selectedBank, setSelectedBank] = useState("Bank of Baroda (BOB)");
+  const [fileName, setFileName] = useState("");
+  const [executives, setExecutives] = useState<Executive[]>([]);
+  const [existingAccounts, setExistingAccounts] = useState<Set<string>>(new Set());
+  const [existingAssignedByArea, setExistingAssignedByArea] =
+    useState<Record<string, number>>({});
+  const [records, setRecords] = useState<ImportCase[]>([]);
+  const [invalidRows, setInvalidRows] = useState(0);
+  const [duplicateRowsInExcel, setDuplicateRowsInExcel] = useState(0);
+  const [missingAddressCount, setMissingAddressCount] = useState(0);
+  const [missingMobileCount, setMissingMobileCount] = useState(0);
+  const [isLoadingExisting, setIsLoadingExisting] = useState(true);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [statusMessage, setStatusMessage] = useState("");
+
+  useEffect(() => {
+    void loadInitialData();
+  }, []);
+
+  async function loadInitialData(): Promise<void> {
+    setIsLoadingExisting(true);
+
+    try {
+      const { data: executiveData, error: executiveError } = await supabase
+        .from("executives")
+        .select("id, executive_code, full_name, area, status")
+        .order("created_at", { ascending: true });
+
+      if (executiveError) throw executiveError;
+
+      const activeExecutives = ((executiveData ?? []) as Executive[]).filter(
+        isActiveExecutive
+      );
+      setExecutives(activeExecutives);
+
+      const allAccounts = new Set<string>();
+      const assignedCounts: Record<string, number> = {};
+      const executiveAreaById = new Map<string, string>();
+
+      activeExecutives.forEach((executive) => {
+        const areaKey = normalizeText(executive.area);
+        if (areaKey) executiveAreaById.set(executive.id, areaKey);
+      });
+
+      const pageSize = 1000;
+      let from = 0;
+
+      while (true) {
+        const { data, error } = await supabase
+          .from("cases")
+          .select("account_number, assigned_executive_id")
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+
+        const rows = (data ?? []) as ExistingCase[];
+
+        rows.forEach((row) => {
+          const account = normalizeAccount(row.account_number);
+          if (account) allAccounts.add(account);
+
+          if (row.assigned_executive_id) {
+            const areaKey = executiveAreaById.get(row.assigned_executive_id);
+            if (areaKey) {
+              assignedCounts[areaKey] = (assignedCounts[areaKey] || 0) + 1;
+            }
+          }
+        });
+
+        if (rows.length < pageSize) break;
+        from += pageSize;
+      }
+
+      setExistingAccounts(allAccounts);
+      setExistingAssignedByArea(assignedCounts);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Initial data load nahi hua.";
+      setStatusMessage(`Database error: ${message}`);
+    } finally {
+      setIsLoadingExisting(false);
+    }
+  }
+
+  async function handleFileUpload(
+    event: ChangeEvent<HTMLInputElement>
+  ): Promise<void> {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    setRecords([]);
+    setInvalidRows(0);
+    setDuplicateRowsInExcel(0);
+    setMissingAddressCount(0);
+    setMissingMobileCount(0);
+    setImportProgress(0);
+    setStatusMessage("Excel read ho rahi hai...");
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, {
+        type: "array",
+        cellDates: true,
+        raw: false,
+      });
+
+      const sheetName = workbook.SheetNames.includes("NPA LIST")
+        ? "NPA LIST"
+        : workbook.SheetNames[0];
+
+      if (!sheetName) throw new Error("Excel me sheet nahi mili.");
+
+      const worksheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, {
+        defval: "",
+        raw: false,
+      });
+
+      if (rows.length === 0) throw new Error("Excel file khali hai.");
+
+      const actualHeaders = Object.keys(rows[0]).map(normalizeHeader);
+      const missingHeaders = EXPECTED_HEADERS.filter(
+        (header) => !actualHeaders.includes(normalizeHeader(header))
+      );
+
+      if (missingHeaders.length > 0) {
+        throw new Error(`Ye columns nahi mili: ${missingHeaders.join(", ")}`);
+      }
+
+      const uniqueCases = new Map<string, ImportCase>();
+      let invalid = 0;
+      let duplicates = 0;
+      let missingAddress = 0;
+      let missingMobile = 0;
+
+      rows.forEach((row) => {
+        const accountNumber = String(
+          getExactValue(row, "A/C No") ?? ""
+        ).trim();
+        const accountName = String(
+          getExactValue(row, "A/C Name") ?? ""
+        ).trim();
+        const normalizedAccount = normalizeAccount(accountNumber);
+
+        if (!normalizedAccount || !accountName) {
+          invalid += 1;
+          return;
+        }
+
+        if (uniqueCases.has(normalizedAccount)) {
+          duplicates += 1;
+          return;
+        }
+
+        const alpha = textValue(getExactValue(row, "Alpha"));
+        const branch = textValue(getExactValue(row, "Branch"));
+        const address = textValue(getExactValue(row, "ADDRESS"));
+        const mobileNumber = textValue(getExactValue(row, "MOBILE NO"));
+
+        if (!address) missingAddress += 1;
+        if (!mobileNumber) missingMobile += 1;
+
+        const resolvedArea = resolveCaseArea(
+          alpha || "",
+          branch || "",
+          address || ""
+        );
+
+        uniqueCases.set(normalizedAccount, {
+          sn: integerValue(getExactValue(row, "SN")),
+          caseType: textValue(getExactValue(row, "TYPE")),
+          alpha,
+          solId: textValue(getExactValue(row, "SOL ID")),
+          branch,
+          customerId: textValue(getExactValue(row, "Cust ID")),
+          accountNumber,
+          accountName,
+          sanctionLimit: numberValue(getExactValue(row, "Sanction Limit")),
+          sanctionDate: excelDateValue(getExactValue(row, "Sanction Date")),
+          schemeCode: textValue(getExactValue(row, "Scheme Code")),
+          revSeg: textValue(getExactValue(row, "REV SEG")),
+          balanceInr: numberValue(getExactValue(row, "Balance [INR]")),
+          customerBalance: numberValue(getExactValue(row, "Cust. Bal")),
+          ecgcReceivable: numberValue(getExactValue(row, "ECGC Rece")),
+          assetClass: textValue(getExactValue(row, "Class")),
+          npaDate: excelDateValue(getExactValue(row, "NPA Date")),
+          two: textValue(getExactValue(row, "TWO")),
+          fraud: textValue(getExactValue(row, "Fraud")),
+          totalProvision: numberValue(getExactValue(row, "Total Provision")),
+          address,
+          mobileNumber,
+          resolvedArea,
+          isExisting: existingAccounts.has(normalizedAccount),
+        });
+      });
+
+      const parsedRecords = Array.from(uniqueCases.values());
+      setRecords(parsedRecords);
+      setInvalidRows(invalid);
+      setDuplicateRowsInExcel(duplicates);
+      setMissingAddressCount(missingAddress);
+      setMissingMobileCount(missingMobile);
+      setStatusMessage(`${parsedRecords.length} unique cases ready hain.`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Excel read nahi hui.";
+      setStatusMessage(`Excel error: ${message}`);
+      setRecords([]);
+    }
+  }
+
+  const newRecords = useMemo(
+    () => records.filter((record) => !record.isExisting),
+    [records]
+  );
+
+  const marketSummaries = useMemo<MarketSummary[]>(() => {
+    const map = new Map<string, MarketSummary>();
+
+    records.forEach((record) => {
+      const area = record.resolvedArea || record.branch || "Unmatched Area";
+      const current = map.get(area) ?? {
+        area,
+        total: 0,
+        newCases: 0,
+        alreadyAssigned:
+          existingAssignedByArea[normalizeText(area)] || 0,
+        executives: executives.filter(
+          (executive) =>
+            normalizeText(executive.area) === normalizeText(area)
+        ),
+      };
+
+      current.total += 1;
+      if (!record.isExisting) current.newCases += 1;
+      map.set(area, current);
+    });
+
+    executives.forEach((executive) => {
+      const area = executive.area?.trim();
+      if (!area || map.has(area)) return;
+
+      map.set(area, {
+        area,
+        total: 0,
+        newCases: 0,
+        alreadyAssigned:
+          existingAssignedByArea[normalizeText(area)] || 0,
+        executives: executives.filter(
+          (item) => normalizeText(item.area) === normalizeText(area)
+        ),
+      });
+    });
+
+    return Array.from(map.values()).sort(
+      (a, b) => b.total + b.alreadyAssigned - (a.total + a.alreadyAssigned)
+    );
+  }, [records, executives, existingAssignedByArea]);
+
+  const autoAssignedPreview = marketSummaries.reduce(
+    (total, summary) =>
+      total + (summary.executives.length > 0 ? summary.newCases : 0),
+    0
+  );
+
+  async function handleImportNewCases(): Promise<void> {
+    if (newRecords.length === 0 || isImporting) return;
+
+    setIsImporting(true);
+    setImportProgress(0);
+    setStatusMessage("Import start ho gaya...");
+
+    try {
+      const workload = new Map<string, number>();
+
+      executives.forEach((executive) => {
+        workload.set(
+          executive.id,
+          existingAssignedByArea[normalizeText(executive.area)] || 0
+        );
+      });
+
+      const payload = newRecords.map((record) => {
+        const matchingExecutives = executives.filter(
+          (executive) =>
+            normalizeText(executive.area) ===
+            normalizeText(record.resolvedArea)
+        );
+
+        const selectedExecutive = [...matchingExecutives].sort((a, b) => {
+          const aLoad = workload.get(a.id) || 0;
+          const bLoad = workload.get(b.id) || 0;
+          return aLoad !== bLoad
+            ? aLoad - bLoad
+            : String(a.executive_code || "").localeCompare(
+                String(b.executive_code || "")
+              );
+        })[0];
+
+        if (selectedExecutive) {
+          workload.set(
+            selectedExecutive.id,
+            (workload.get(selectedExecutive.id) || 0) + 1
+          );
+        }
+
+        return {
+          sn: record.sn,
+          case_type: record.caseType,
+          alpha: record.alpha,
+          sol_id: record.solId,
+          branch: record.branch,
+          customer_id: record.customerId,
+          account_number: record.accountNumber,
+          account_name: record.accountName,
+          sanction_limit: record.sanctionLimit,
+          sanction_date: record.sanctionDate,
+          scheme_code: record.schemeCode,
+          rev_seg: record.revSeg,
+          balance_inr: record.balanceInr,
+          customer_balance: record.customerBalance,
+          ecgc_receivable: record.ecgcReceivable,
+          asset_class: record.assetClass,
+          npa_date: record.npaDate,
+          two: record.two,
+          fraud: record.fraud,
+          total_provision: record.totalProvision,
+          address: record.address,
+          mobile_number: record.mobileNumber,
+          bank_name: selectedBank,
+          status: "pending",
+          assigned_executive_id: selectedExecutive?.id ?? null,
+          assigned_executive: selectedExecutive
+            ? formatExecutive(selectedExecutive)
+            : null,
+          executive_code: selectedExecutive?.executive_code ?? null,
+          remarks: `Resolved Area: ${
+            record.resolvedArea || "Unmatched"
+          } | Source File: ${fileName}`,
+        };
+      });
+
+      const batchSize = 200;
+      let imported = 0;
+
+      for (let index = 0; index < payload.length; index += batchSize) {
+        const batch = payload.slice(index, index + batchSize);
+
+        const { error } = await supabase
+          .from("cases")
+          .upsert(batch, {
+            onConflict: "account_number",
+            ignoreDuplicates: true,
+          });
+
+        if (error) throw error;
+
+        imported += batch.length;
+        setImportProgress(
+          Math.round((imported / payload.length) * 100)
+        );
+        setStatusMessage(
+          `${imported} / ${payload.length} cases imported...`
+        );
+      }
+
+      const importedAccounts = payload.map((row) =>
+        normalizeAccount(row.account_number)
+      );
+
+      setExistingAccounts(
+        (previous) => new Set([...previous, ...importedAccounts])
+      );
+      setRecords((previous) =>
+        previous.map((record) =>
+          importedAccounts.includes(
+            normalizeAccount(record.accountNumber)
+          )
+            ? { ...record, isExisting: true }
+            : record
+        )
+      );
+
+      await loadInitialData();
+
+      setImportProgress(100);
+      setStatusMessage(
+        `${payload.length} cases successfully imported.`
+      );
+      alert(
+        [
+          "Import complete.",
+          `Imported: ${payload.length}`,
+          `Auto assigned: ${autoAssignedPreview}`,
+          `Unassigned: ${payload.length - autoAssignedPreview}`,
+        ].join("\n")
+      );
+    } catch (error) {
+      const value = error as {
+        code?: string;
+        message?: string;
+        details?: string;
+        hint?: string;
+      };
+
+      const message = [
+        value.code ? `Code: ${value.code}` : "",
+        value.message ? `Message: ${value.message}` : "",
+        value.details ? `Details: ${value.details}` : "",
+        value.hint ? `Hint: ${value.hint}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      setStatusMessage(
+        `Import error: ${message || "Unknown import error"}`
+      );
+      alert(`Import Error:\n${message || "Unknown import error"}`);
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  function resetImport(): void {
+    setFileName("");
+    setRecords([]);
+    setInvalidRows(0);
+    setDuplicateRowsInExcel(0);
+    setMissingAddressCount(0);
+    setMissingMobileCount(0);
+    setImportProgress(0);
+    setStatusMessage("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  return (
+    <div style={{ padding: 24, background: "#f8fafc", minHeight: "100vh" }}>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: 0 }}>🏦 Safe Bank Excel Import</h2>
+        <p style={{ color: "#64748b" }}>
+          22-column import + market-wise balanced executive assignment
+        </p>
+      </div>
+
+      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "end" }}>
+          <label>
+            Target Bank
+            <br />
+            <select value={selectedBank} onChange={(event) => setSelectedBank(event.target.value)} disabled={isImporting}>
+              <option>Bank of Baroda (BOB)</option>
+              <option>State Bank of India (SBI)</option>
+            </select>
+          </label>
+
+          <label>
+            Excel File
+            <br />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleFileUpload}
+              disabled={isImporting || isLoadingExisting}
+            />
+          </label>
+
+          {records.length > 0 && (
+            <button type="button" onClick={resetImport} disabled={isImporting}>
+              Clear
+            </button>
+          )}
+        </div>
+
+        <p style={{ color: statusMessage.includes("error") ? "#dc2626" : "#475569" }}>
+          {isLoadingExisting
+            ? "Database aur executives load ho rahe hain..."
+            : statusMessage}
+        </p>
+      </div>
+
+      {records.length > 0 && (
+        <>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 20, marginBottom: 20 }}>
+            <p><b>File:</b> {fileName}</p>
+            <p><b>Unique Excel Cases:</b> {records.length}</p>
+            <p><b>New Cases:</b> {newRecords.length}</p>
+            <p><b>Already In DB:</b> {records.length - newRecords.length}</p>
+            <p><b>Excel Duplicates:</b> {duplicateRowsInExcel}</p>
+            <p><b>Invalid Rows:</b> {invalidRows}</p>
+            <p><b>Missing Address:</b> {missingAddressCount}</p>
+            <p><b>Missing Mobile:</b> {missingMobileCount}</p>
+            <p><b>Auto Assigned Preview:</b> {autoAssignedPreview}</p>
+            <p><b>Unassigned Preview:</b> {newRecords.length - autoAssignedPreview}</p>
+
+            {isImporting && <p><b>Progress:</b> {importProgress}%</p>}
+
+            <button
+              type="button"
+              onClick={handleImportNewCases}
+              disabled={isImporting || newRecords.length === 0}
+            >
+              {isImporting
+                ? `Importing ${importProgress}%`
+                : `Import ${newRecords.length} New Cases`}
+            </button>
+          </div>
+
+          <div style={{ background: "#fff", borderRadius: 12, padding: 20 }}>
+            <h3>Market-wise Assignment Preview</h3>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th>Market / Area</th>
+                    <th>Current Excel</th>
+                    <th>New Cases</th>
+                    <th>Already Assigned</th>
+                    <th>Active Executives</th>
+                    <th>Import Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {marketSummaries.map((summary) => (
+                    <tr key={summary.area}>
+                      <td>{summary.area}</td>
+                      <td>{summary.total}</td>
+                      <td>{summary.newCases}</td>
+                      <td>{summary.alreadyAssigned}</td>
+                      <td>
+                        {summary.executives.length > 0
+                          ? summary.executives
+                              .map(formatExecutive)
+                              .join(", ")
+                          : "No Active Executive"}
+                      </td>
+                      <td>
+                        {summary.newCases === 0
+                          ? "No new case"
+                          : summary.executives.length > 0
+                            ? `✅ ${summary.newCases} assigned`
+                            : `⚠️ ${summary.newCases} unassigned`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default BankImport;

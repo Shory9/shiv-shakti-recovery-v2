@@ -156,8 +156,8 @@ function PaymentsPage() {
           ),
           bankName: first(
             payment,
-            ["bank_name"],
-            first(caseRow, ["bank_name", "branch", "branch_name"], "-")
+            ["branch_name"],
+            first(caseRow, ["branch_name", "branch", "branch_name"], "-")
           ),
           amount: numberValue(
             payment.amount ??

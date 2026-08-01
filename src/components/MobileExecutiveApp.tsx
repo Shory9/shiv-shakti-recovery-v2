@@ -331,30 +331,11 @@ export default function MobileExecutiveApp() {
       }, 0);
 
       const generatedCode = `SS${String(maxNumber + 1).padStart(3, "0")}`;
-      const authEmail = `${phone}@executive.shivshaktirecovery.in`;
-      const authPassword = `${crypto.randomUUID()}Aa1!`;
-
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: authEmail,
-        password: authPassword,
-        options: {
-          data: {
-            full_name: name,
-            mobile: phone,
-            role: "executive",
-          },
-        },
-      });
-
-      if (authError) throw authError;
-      if (!authData.user?.id) {
-        throw new Error("Executive auth account create nahi hua.");
-      }
 
       const { data, error } = await supabase
         .from("executives")
         .insert({
-          id: authData.user.id,
+          id: crypto.randomUUID(),
           executive_code: generatedCode,
           full_name: name,
           mobile: phone,
@@ -365,10 +346,7 @@ export default function MobileExecutiveApp() {
         .select("*")
         .single();
 
-      if (error) {
-        await supabase.auth.signOut();
-        throw error;
-      }
+      if (error) throw error;
 
       const pendingExecutive = data as ExecutiveRow;
       setExecutive(pendingExecutive);

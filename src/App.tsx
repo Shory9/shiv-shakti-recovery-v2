@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import "./App.css";
 
-import BankImportPage from "./components/BankImportPage";
+import BankImport from "./components/BankImport";
 import CasesPage from "./components/CasesPage";
 import DashboardPage from "./components/DashboardPage";
 import ExecutiveAppPage from "./components/ExecutiveAppPage";
@@ -46,7 +46,7 @@ function App() {
         return <DashboardPage />;
 
       case "Bank Import":
-        return <BankImportPage />;
+        return <BankImport />;
 
       case "Cases":
         return <CasesPage />;
