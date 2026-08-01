@@ -857,7 +857,7 @@ export default function MobileExecutiveApp() {
               <button
                 style={{
                   ...styles.navItem,
-                  color: screen === "dashboard" ? "#0d3b66" : "#64748b",
+                  color: screen === "dashboard" ? "#b91c1c" : "#7f1d1d",
                 }}
                 onClick={() => setScreen("dashboard")}
               >
@@ -866,7 +866,7 @@ export default function MobileExecutiveApp() {
               <button
                 style={{
                   ...styles.navItem,
-                  color: screen === "gps" ? "#0d3b66" : "#64748b",
+                  color: screen === "gps" ? "#b91c1c" : "#7f1d1d",
                 }}
                 onClick={() => setScreen("gps")}
               >
@@ -875,7 +875,7 @@ export default function MobileExecutiveApp() {
               <button
                 style={{
                   ...styles.navItem,
-                  color: screen === "payments" ? "#0d3b66" : "#64748b",
+                  color: screen === "payments" ? "#b91c1c" : "#7f1d1d",
                 }}
                 onClick={() => setScreen("payments")}
               >
@@ -884,7 +884,7 @@ export default function MobileExecutiveApp() {
               <button
                 style={{
                   ...styles.navItem,
-                  color: screen === "profile" ? "#0d3b66" : "#64748b",
+                  color: screen === "profile" ? "#b91c1c" : "#7f1d1d",
                 }}
                 onClick={() => setScreen("profile")}
               >
@@ -900,8 +900,8 @@ export default function MobileExecutiveApp() {
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100vh",
-    background: "#eef3f8",
-    color: "#0f172a",
+    background: "#fff5f5",
+    color: "#1f1111",
     fontFamily: "Inter, system-ui, sans-serif",
   },
   shell: {
@@ -917,23 +917,25 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     gap: 12,
     padding: "16px 4px 20px",
+    color: "#7f1d1d",
   },
   logo: { width: 48, height: 48, objectFit: "contain", borderRadius: 12 },
   card: {
-    background: "#fff",
+    background: "#ffffff",
     borderRadius: 22,
     padding: 24,
-    boxShadow: "0 14px 40px rgba(15,23,42,.1)",
+    border: "1px solid #fee2e2",
+    boxShadow: "0 16px 38px rgba(127,29,29,.12)",
   },
   title: { margin: 0, fontSize: 28 },
-  subtext: { color: "#64748b", lineHeight: 1.6 },
+  subtext: { color: "#7f1d1d", lineHeight: 1.6 },
   form: { display: "grid", gap: 12, marginTop: 20 },
   input: {
     width: "100%",
     minHeight: 50,
     padding: "0 14px",
     borderRadius: 12,
-    border: "1px solid #cbd5e1",
+    border: "1px solid #fecaca",
     background: "#fff",
     fontSize: 15,
     boxSizing: "border-box",
@@ -943,7 +945,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 50,
     border: 0,
     borderRadius: 12,
-    background: "#0d3b66",
+    background: "linear-gradient(135deg,#dc2626,#7f1d1d)",
     color: "#fff",
     fontSize: 15,
     fontWeight: 800,
@@ -955,7 +957,7 @@ const styles: Record<string, CSSProperties> = {
     padding: 14,
     border: 0,
     background: "transparent",
-    color: "#2563eb",
+    color: "#dc2626",
     fontWeight: 800,
     cursor: "pointer",
   },
@@ -974,7 +976,7 @@ const styles: Record<string, CSSProperties> = {
     padding: 16,
     margin: "18px 0",
     borderRadius: 14,
-    background: "#f8fafc",
+    background: "#fffafa",
   },
   profileCard: {
     display: "flex",
@@ -983,8 +985,9 @@ const styles: Record<string, CSSProperties> = {
     gap: 12,
     padding: 20,
     borderRadius: 20,
-    background: "linear-gradient(135deg,#07192d,#12497b)",
+    background: "linear-gradient(135deg,#111111 0%,#7f1d1d 55%,#dc2626 100%)",
     color: "#fff",
+    boxShadow: "0 16px 34px rgba(127,29,29,.24)",
   },
   logoutButton: {
     border: "1px solid rgba(255,255,255,.35)",
@@ -1017,8 +1020,8 @@ const styles: Record<string, CSSProperties> = {
     border: 0,
     borderRadius: 9,
     padding: "9px 12px",
-    background: "#dbeafe",
-    color: "#1d4ed8",
+    background: "#fee2e2",
+    color: "#b91c1c",
     fontWeight: 800,
   },
   empty: {
@@ -1026,7 +1029,7 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 16,
     background: "#fff",
     textAlign: "center",
-    color: "#64748b",
+    color: "#7f1d1d",
   },
   caseList: { display: "grid", gap: 12 },
   caseCard: {
@@ -1045,13 +1048,13 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   caseTop: { display: "flex", justifyContent: "space-between", gap: 12 },
-  caseMeta: { marginTop: 4, color: "#64748b", fontSize: 12 },
+  caseMeta: { marginTop: 4, color: "#7f1d1d", fontSize: 12 },
   statusBadge: {
     height: "fit-content",
     padding: "6px 9px",
     borderRadius: 999,
-    background: "#eff6ff",
-    color: "#1d4ed8",
+    background: "#fef2f2",
+    color: "#b91c1c",
     fontSize: 11,
     fontWeight: 800,
   },
@@ -1059,12 +1062,12 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     gap: 7,
     marginTop: 14,
-    color: "#475569",
+    color: "#3f1d1d",
     fontSize: 13,
   },
   viewDetailsText: {
     marginTop: 14,
-    color: "#2563eb",
+    color: "#dc2626",
     fontSize: 12,
     fontWeight: 800,
   },
@@ -1073,8 +1076,8 @@ const styles: Record<string, CSSProperties> = {
     padding: "10px 12px",
     border: 0,
     borderRadius: 10,
-    background: "#dbeafe",
-    color: "#1d4ed8",
+    background: "#fee2e2",
+    color: "#b91c1c",
     fontWeight: 800,
   },
   detailHero: {
@@ -1084,8 +1087,9 @@ const styles: Record<string, CSSProperties> = {
     gap: 14,
     padding: 20,
     borderRadius: 20,
-    background: "linear-gradient(135deg,#07192d,#12497b)",
+    background: "linear-gradient(135deg,#111111 0%,#7f1d1d 60%,#dc2626 100%)",
     color: "#fff",
+    boxShadow: "0 16px 34px rgba(127,29,29,.22)",
   },
   detailKicker: {
     fontSize: 11,
@@ -1133,7 +1137,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 50,
     border: 0,
     borderRadius: 12,
-    background: "#2563eb",
+    background: "#dc2626",
     color: "#fff",
     fontWeight: 800,
   },
@@ -1163,7 +1167,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     justifyContent: "space-around",
     alignItems: "center",
-    borderTop: "1px solid #cbd5e1",
+    borderTop: "1px solid #fecaca",
     zIndex: 1000,
     boxShadow: "0 -4px 20px rgba(0,0,0,0.05)",
   },
