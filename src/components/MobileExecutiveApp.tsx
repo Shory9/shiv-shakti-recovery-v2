@@ -385,11 +385,7 @@ export default function MobileExecutiveApp() {
     } catch (error) {
       console.error("Mobile cases load error:", error);
       setCases([]);
-      setMessage(
-        error instanceof Error
-          ? `Cases load error: ${error.message}`
-          : "Cases load nahi hue."
-      );
+      setMessage(`Cases load error: ${errorMessage(error, "Unknown database error")}`);
     } finally {
       setLoading(false);
     }
