@@ -124,21 +124,21 @@ function GPSPage() {
     setError("");
 
     try {
-      const allProfiles: RawRow[] = [];
+      const allExecutives: RawRow[] = [];
       const allLocations: RawRow[] = [];
       const pageSize = 1000;
       let from = 0;
 
       while (true) {
-        const { data, error: profilesError } = await supabase
-          .from("profiles")
+        const { data, error: executivesError } = await supabase
+          .from("executives")
           .select("*")
           .range(from, from + pageSize - 1);
 
-        if (profilesError) throw profilesError;
+        if (executivesError) throw executivesError;
 
         const rows = (data ?? []) as RawRow[];
-        allProfiles.push(...rows);
+        allExecutives.push(...rows);
         if (rows.length < pageSize) break;
         from += pageSize;
       }
@@ -192,13 +192,13 @@ function GPSPage() {
         }
       });
 
-      const executiveProfiles = allProfiles.filter((profile) => {
-        const role = textValue(profile, ["role", "user_role"]).toLowerCase();
-        return role === "executive" || role === "field_executive";
+      const executiveRows = allExecutives.filter((executive) => {
+        const status = textValue(executive, ["status"]).toLowerCase();
+        return status === "active" || status === "approved";
       });
 
-      const merged = executiveProfiles.map((profile, index) => {
-        const id = textValue(profile, ["id"], String(index + 1));
+      const merged = executiveRows.map((executive, index) => {
+        const id = textValue(executive, ["id"], String(index + 1));
         const location = latestLocationByExecutive.get(id) ?? {};
         const latitude = numberValue(location, ["latitude", "lat"]);
         const longitude = numberValue(location, ["longitude", "lng", "lon"]);
@@ -213,10 +213,18 @@ function GPSPage() {
 
         return {
           id,
-          name: textValue(profile, ["full_name", "name", "executive_name"], "Unnamed Executive"),
-          code: textValue(profile, ["executive_code", "agent_code"], `EXE-${String(index + 1).padStart(3, "0")}`),
-          mobile: textValue(profile, ["phone", "mobile"], "Not available"),
-          area: textValue(profile, ["area", "assigned_area"], "Not assigned"),
+          name: textValue(executive, ["full_name"], "Unnamed Executive"),
+          code: textValue(
+            executive,
+            ["executive_code"],
+            `EXE-${String(index + 1).padStart(3, "0")}`
+          ),
+          mobile: textValue(
+            executive,
+            ["phone", "mobile_number"],
+            "Not available"
+          ),
+          area: textValue(executive, ["area"], "Not assigned"),
           latitude,
           longitude,
           accuracy,

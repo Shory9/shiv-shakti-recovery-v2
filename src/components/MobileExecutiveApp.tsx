@@ -23,33 +23,23 @@ type ExecutiveRow = {
 };
 
 type CaseRow = {
-  id: number;
-  case_no?: string | null;
-  case_number?: string | null;
-  account_no?: string | null;
-  customer_name?: string | null;
-  customer?: string | null;
-  mobile?: string | null;
-  phone?: string | null;
+  id: string;
+  account_number?: string | null;
+  account_name?: string | null;
+  mobile_number?: string | null;
   address?: string | null;
-  area?: string | null;
-  status?: string | null;
-  assigned_executive_id?: number | string | null;
-  assigned_executive?: string | null;
-  assigned_agent?: number | string | null;
-  executive_id?: number | string | null;
-  executive_code?: string | null;
-  loan_amount?: number | string | null;
-  emi_amount?: number | string | null;
-  outstanding_amount?: number | string | null;
-  amount?: number | string | null;
+  branch?: string | null;
+  scheme_code?: string | null;
+  rev_seg?: string | null;
+  asset_class?: string | null;
+  sanction_limit?: number | string | null;
+  customer_balance?: number | string | null;
+  balance_inr?: number | string | null;
   bank_name?: string | null;
-  bank?: string | null;
-  branch_name?: string | null;
-  vehicle_number?: string | null;
-  vehicle_model?: string | null;
-  product_name?: string | null;
-  due_date?: string | null;
+  status?: string | null;
+  assigned_executive_id?: string | null;
+  assigned_executive?: string | null;
+  executive_code?: string | null;
   remarks?: string | null;
 };
 
@@ -98,11 +88,16 @@ function isApproved(row: ExecutiveRow) {
 }
 
 function caseNumber(row: CaseRow) {
-  return cleanText(row.case_no || row.case_number || row.account_no || `ID ${row.id}`);
+  return cleanText(row.account_number || `ID ${row.id}`);
 }
 
 function customerName(row: CaseRow) {
-  return cleanText(row.customer_name || row.customer || `Case #${row.id}`);
+  return cleanText(row.account_name || `Case #${row.id}`);
+}
+
+function caseArea(row: CaseRow) {
+  const remarksArea = cleanText(row.remarks).match(/Resolved Area:\s*([^|]+)/i);
+  return cleanText(remarksArea?.[1] || row.branch || "Not available");
 }
 
 function toNumber(value: unknown) {
@@ -121,19 +116,6 @@ function formatMoney(value: unknown) {
   });
 }
 
-function formatDate(value: unknown) {
-  const raw = cleanText(value);
-  if (!raw) return "Not available";
-
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return raw;
-
-  return date.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 export default function MobileExecutiveApp() {
   const [screen, setScreen] = useState<Screen>("login");
@@ -187,17 +169,20 @@ export default function MobileExecutiveApp() {
         setCurrentCoords({ lat, lng });
 
         try {
+          const now = new Date().toISOString();
+
           const { error } = await supabase
-            .from("executives")
-            .update({
+            .from("gps_locations")
+            .insert({
+              executive_id: executive.id,
               latitude: lat,
               longitude: lng,
-              last_location_time: new Date().toISOString(),
-            })
-            .eq("id", executive.id);
+              accuracy: position.coords.accuracy,
+              recorded_at: now,
+            });
 
           if (error) throw error;
-          setGpsStatus(`Updated: ${new Date().toLocaleTimeString()}`);
+          setGpsStatus(`Updated: ${new Date(now).toLocaleTimeString()}`);
         } catch (error) {
           console.error("GPS sync error:", error);
           setGpsStatus(
@@ -371,49 +356,25 @@ export default function MobileExecutiveApp() {
     setMessage("");
 
     try {
-      const allCases: CaseRow[] = [];
+      const assignedCases: CaseRow[] = [];
       let from = 0;
 
       while (true) {
         const { data, error } = await supabase
           .from("cases")
           .select("*")
-          .order("id", { ascending: false })
+          .eq("assigned_executive_id", String(row.id))
+          .order("created_at", { ascending: false })
           .range(from, from + CASE_BATCH_SIZE - 1);
 
         if (error) throw error;
 
         const batch = (data ?? []) as CaseRow[];
-        allCases.push(...batch);
+        assignedCases.push(...batch);
 
         if (batch.length < CASE_BATCH_SIZE) break;
         from += CASE_BATCH_SIZE;
       }
-
-      const currentId = cleanText(row.id).toLowerCase();
-      const currentCode = executiveCode(row).toLowerCase();
-
-      const assignedCases = allCases.filter((item) => {
-        const assignedIds = [
-          item.assigned_executive_id,
-          item.executive_id,
-          item.assigned_agent,
-        ]
-          .map((value) => cleanText(value).toLowerCase())
-          .filter(Boolean);
-
-        const assignedCodes = [
-          item.assigned_executive,
-          item.executive_code,
-        ]
-          .map((value) => cleanText(value).toLowerCase())
-          .filter(Boolean);
-
-        return (
-          assignedIds.includes(currentId) ||
-          assignedCodes.includes(currentCode)
-        );
-      });
 
       setCases(assignedCases);
       setSelectedCase((current) =>
@@ -434,7 +395,7 @@ export default function MobileExecutiveApp() {
     }
   }
 
-  async function updateCaseStatus(caseId: number, nextStatus: string) {
+  async function updateCaseStatus(caseId: string, nextStatus: string) {
     setLoading(true);
     setMessage("");
 
@@ -479,7 +440,7 @@ export default function MobileExecutiveApp() {
   }
 
   function callCustomer(item: CaseRow) {
-    const phone = cleanPhone(item.mobile || item.phone);
+    const phone = cleanPhone(item.mobile_number);
     if (!phone) {
       setMessage("Customer mobile number available nahi hai.");
       return;
@@ -699,10 +660,10 @@ export default function MobileExecutiveApp() {
                       </div>
                       <div style={styles.caseDetails}>
                         <div>
-                          📞 {cleanText(item.mobile || item.phone) || "No mobile"}
+                          📞 {cleanText(item.mobile_number) || "No mobile"}
                         </div>
                         <div>
-                          📍 {cleanText(item.address || item.area) || "No address"}
+                          📍 {cleanText(item.address) || caseArea(item)}
                         </div>
                       </div>
                       <div style={styles.viewDetailsText}>
@@ -798,13 +759,12 @@ export default function MobileExecutiveApp() {
               <div style={styles.detailBox}>
                 <span>Customer Mobile</span>
                 <strong>
-                  {cleanText(selectedCase.mobile || selectedCase.phone) ||
-                    "Not available"}
+                  {cleanText(selectedCase.mobile_number) || "Not available"}
                 </strong>
               </div>
               <div style={styles.detailBox}>
                 <span>Area</span>
-                <strong>{cleanText(selectedCase.area) || "Not available"}</strong>
+                <strong>{caseArea(selectedCase)}</strong>
               </div>
               <div style={styles.detailBox}>
                 <span>Address</span>
@@ -815,42 +775,37 @@ export default function MobileExecutiveApp() {
               <div style={styles.detailBox}>
                 <span>Bank</span>
                 <strong>
-                  {cleanText(selectedCase.bank_name || selectedCase.bank) ||
-                    "Not available"}
+                  {cleanText(selectedCase.bank_name) || "Not available"}
                 </strong>
               </div>
               <div style={styles.detailBox}>
                 <span>Loan Amount</span>
-                <strong>{formatMoney(selectedCase.loan_amount)}</strong>
+                <strong>{formatMoney(selectedCase.sanction_limit)}</strong>
               </div>
               <div style={styles.detailBox}>
                 <span>Outstanding</span>
                 <strong>
-                  {formatMoney(
-                    selectedCase.outstanding_amount || selectedCase.amount
-                  )}
+                  {formatMoney(selectedCase.balance_inr)}
                 </strong>
               </div>
               <div style={styles.detailBox}>
-                <span>EMI Amount</span>
-                <strong>{formatMoney(selectedCase.emi_amount)}</strong>
+                <span>Customer Balance</span>
+                <strong>{formatMoney(selectedCase.customer_balance)}</strong>
               </div>
               <div style={styles.detailBox}>
-                <span>Due Date</span>
-                <strong>{formatDate(selectedCase.due_date)}</strong>
+                <span>Scheme</span>
+                <strong>{cleanText(selectedCase.scheme_code) || "Not available"}</strong>
               </div>
               <div style={styles.detailBox}>
-                <span>Vehicle Number</span>
+                <span>Segment</span>
                 <strong>
-                  {cleanText(selectedCase.vehicle_number) || "Not available"}
+                  {cleanText(selectedCase.rev_seg) || "Not available"}
                 </strong>
               </div>
               <div style={styles.detailBox}>
-                <span>Vehicle / Product</span>
+                <span>Category</span>
                 <strong>
-                  {cleanText(
-                    selectedCase.vehicle_model || selectedCase.product_name
-                  ) || "Not available"}
+                  {cleanText(selectedCase.asset_class) || "Not available"}
                 </strong>
               </div>
             </section>
