@@ -53,7 +53,7 @@ type Screen =
   | "payments"
   | "profile";
 
-const CASE_BATCH_SIZE = 1000;
+
 
 const cleanText = (value: unknown) => String(value ?? "").trim();
 const cleanPhone = (value: unknown) => cleanText(value).replace(/\D/g, "");
@@ -357,26 +357,15 @@ export default function MobileExecutiveApp() {
     setMessage("");
 
     try {
-      const assignedCases: CaseRow[] = [];
-      let from = 0;
+      const { data, error } = await supabase.rpc("mobile_executive_cases", {
+        p_executive_id: String(row.id),
+        p_executive_code: executiveCode(row),
+        p_mobile: executivePhone(row),
+      });
 
-      while (true) {
-        const { data, error } = await supabase
-          .from("cases")
-          .select("*")
-          .eq("assigned_executive_id", String(row.id))
-          .order("created_at", { ascending: false })
-          .range(from, from + CASE_BATCH_SIZE - 1);
+      if (error) throw error;
 
-        if (error) throw error;
-
-        const batch = (data ?? []) as CaseRow[];
-        assignedCases.push(...batch);
-
-        if (batch.length < CASE_BATCH_SIZE) break;
-        from += CASE_BATCH_SIZE;
-      }
-
+      const assignedCases = (data ?? []) as CaseRow[];
       setCases(assignedCases);
       setSelectedCase((current) =>
         current
@@ -386,7 +375,9 @@ export default function MobileExecutiveApp() {
     } catch (error) {
       console.error("Mobile cases load error:", error);
       setCases([]);
-      setMessage(`Cases load error: ${errorMessage(error, "Unknown database error")}`);
+      setMessage(
+        `Cases load error: ${errorMessage(error, "Unknown database error")}`
+      );
     } finally {
       setLoading(false);
     }
