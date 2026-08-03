@@ -95,13 +95,7 @@ function formatDateTime(value: string | null) {
 }
 
 function mapUrl(latitude: number, longitude: number) {
-  const delta = 0.012;
-  const left = longitude - delta;
-  const right = longitude + delta;
-  const top = latitude + delta;
-  const bottom = latitude - delta;
-
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${latitude}%2C${longitude}`;
+  return `https://maps.google.com/maps?q=${latitude},${longitude}&z=16&output=embed`;
 }
 
 function googleMapsUrl(latitude: number, longitude: number) {
@@ -870,8 +864,9 @@ function GPSPage() {
               <iframe
                 className="gps-map-frame"
                 title={`${selectedExecutive.name} live location`}
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
+                loading="eager"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
                 src={mapUrl(
                   selectedExecutive.latitude as number,
                   selectedExecutive.longitude as number
