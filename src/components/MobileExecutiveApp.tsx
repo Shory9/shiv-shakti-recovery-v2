@@ -172,15 +172,15 @@ export default function MobileExecutiveApp() {
         try {
           const now = new Date().toISOString();
 
-          const { error } = await supabase
-            .from("gps_locations")
-            .insert({
-              executive_id: executive.id,
-              latitude: lat,
-              longitude: lng,
-              accuracy: position.coords.accuracy,
-              recorded_at: now,
-            });
+          const { error } = await supabase.rpc("mobile_update_executive_location", {
+            p_executive_id: String(executive.id),
+            p_executive_code: executiveCode(executive),
+            p_mobile: executivePhone(executive),
+            p_latitude: lat,
+            p_longitude: lng,
+            p_accuracy: position.coords.accuracy,
+            p_last_location_time: now,
+          });
 
           if (error) throw error;
           setGpsStatus(`Updated: ${new Date(now).toLocaleTimeString()}`);
