@@ -125,6 +125,7 @@ function GPSPage() {
 
     try {
       const allExecutives: RawRow[] = [];
+      const allLocations: RawRow[] = [];
       const pageSize = 1000;
       let from = 0;
 
@@ -138,38 +139,75 @@ function GPSPage() {
 
         const rows = (data ?? []) as RawRow[];
         allExecutives.push(...rows);
-
         if (rows.length < pageSize) break;
         from += pageSize;
       }
 
+      from = 0;
+      while (true) {
+        const { data, error: locationsError } = await supabase
+          .from("gps_locations")
+          .select("*")
+          .range(from, from + pageSize - 1);
+
+        if (locationsError) throw locationsError;
+
+        const rows = (data ?? []) as RawRow[];
+        allLocations.push(...rows);
+        if (rows.length < pageSize) break;
+        from += pageSize;
+      }
+
+      const latestLocationByExecutive = new Map<string, RawRow>();
+
+      allLocations.forEach((location) => {
+        const executiveId = textValue(location, ["executive_id"]);
+        if (!executiveId) return;
+
+        const current = latestLocationByExecutive.get(executiveId);
+        const locationTime = textValue(location, [
+          "recorded_at",
+          "created_at",
+        ]);
+        const currentTime = current
+          ? textValue(current, [
+              "recorded_at",
+              "created_at",
+            ])
+          : "";
+
+        if (!current || new Date(locationTime).getTime() >= new Date(currentTime).getTime()) {
+          latestLocationByExecutive.set(executiveId, location);
+        }
+      });
+
       const executiveRows = allExecutives.filter((executive) => {
         const status = textValue(executive, ["status"]).toLowerCase();
-        return ["active", "approved", "online"].includes(status);
+        return status === "active" || status === "approved";
       });
 
       const merged = executiveRows.map((executive, index) => {
         const id = textValue(executive, ["id"], String(index + 1));
-        const latitude = numberValue(executive, ["latitude", "last_latitude", "lat"]);
-        const longitude = numberValue(executive, ["longitude", "last_longitude", "lng", "lon"]);
-        const accuracy = numberValue(executive, ["location_accuracy", "accuracy", "accuracy_meters"]);
-        const lastUpdated = textValue(executive, [
-          "last_location_time",
-          "last_seen",
-          "updated_at",
+        const location = latestLocationByExecutive.get(id) ?? {};
+        const latitude = numberValue(location, ["latitude"]);
+        const longitude = numberValue(location, ["longitude"]);
+        const accuracy = numberValue(location, ["accuracy"]);
+        const lastUpdated = textValue(location, [
+          "recorded_at",
+          "created_at",
         ]);
 
         return {
           id,
-          name: textValue(executive, ["full_name", "name"], "Unnamed Executive"),
+          name: textValue(executive, ["full_name"], "Unnamed Executive"),
           code: textValue(
             executive,
-            ["executive_code", "agent_code"],
+            ["executive_code"],
             `EXE-${String(index + 1).padStart(3, "0")}`
           ),
           mobile: textValue(
             executive,
-            ["mobile", "phone", "mobile_number"],
+            ["mobile"],
             "Not available"
           ),
           area: textValue(executive, ["area"], "Not assigned"),
@@ -190,30 +228,19 @@ function GPSPage() {
         };
 
         const statusDifference = rank[a.status] - rank[b.status];
-        return statusDifference !== 0
-          ? statusDifference
-          : a.name.localeCompare(b.name);
+        return statusDifference !== 0 ? statusDifference : a.name.localeCompare(b.name);
       });
 
       setExecutives(merged);
       setLastRefresh(new Date());
       setSelectedId((current) => {
-        if (current && merged.some((item) => String(item.id) === current)) {
-          return current;
-        }
-
-        const firstConnected = merged.find((item) =>
-          validCoordinate(item.latitude, item.longitude)
-        );
-
+        if (current && merged.some((item) => String(item.id) === current)) return current;
+        const firstConnected = merged.find((item) => validCoordinate(item.latitude, item.longitude));
         return firstConnected ? String(firstConnected.id) : "";
       });
     } catch (caughtError) {
       const message =
-        caughtError instanceof Error
-          ? caughtError.message
-          : "GPS data load nahi ho saka.";
-
+        caughtError instanceof Error ? caughtError.message : "GPS data load nahi ho saka.";
       setError(message);
       console.error("GPS Tracking load error:", caughtError);
     } finally {
@@ -236,7 +263,7 @@ function GPSPage() {
         {
           event: "*",
           schema: "public",
-          table: "executives",
+          table: "gps_locations",
         },
         () => {
           void loadGPSData(true);

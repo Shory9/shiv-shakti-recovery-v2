@@ -10,9 +10,7 @@ import { supabase } from "../supabaseClient";
 type ExecutiveRow = {
   id: number | string;
   executive_code?: string | null;
-  agent_code?: string | null;
   full_name?: string | null;
-  name?: string | null;
   mobile?: string | null;
   area?: string | null;
   vehicle_type?: string | null;
@@ -71,11 +69,11 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 function executiveCode(row: ExecutiveRow) {
-  return cleanText(row.executive_code || row.agent_code || `SS${row.id}`);
+  return cleanText(row.executive_code || `SS${row.id}`);
 }
 
 function executiveName(row: ExecutiveRow) {
-  return cleanText(row.full_name || row.name || "Executive");
+  return cleanText(row.full_name || "Executive");
 }
 
 function executivePhone(row: ExecutiveRow) {
@@ -172,14 +170,14 @@ export default function MobileExecutiveApp() {
         try {
           const now = new Date().toISOString();
 
-          const { error } = await supabase.rpc("mobile_update_executive_location", {
+          const { error } = await supabase.rpc("mobile_save_gps_location", {
             p_executive_id: String(executive.id),
             p_executive_code: executiveCode(executive),
             p_mobile: executivePhone(executive),
             p_latitude: lat,
             p_longitude: lng,
             p_accuracy: position.coords.accuracy,
-            p_last_location_time: now,
+            p_recorded_at: now,
           });
 
           if (error) throw error;
@@ -187,9 +185,7 @@ export default function MobileExecutiveApp() {
         } catch (error) {
           console.error("GPS sync error:", error);
           setGpsStatus(
-            error instanceof Error
-              ? `GPS Sync Error: ${error.message}`
-              : "GPS location save nahi hui."
+            `GPS Sync Error: ${errorMessage(error, "Unknown GPS database error")}`
           );
         }
       },
