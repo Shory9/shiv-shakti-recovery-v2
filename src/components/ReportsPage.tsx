@@ -2,24 +2,29 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "../supabaseClient";
 
 type CaseRow = {
-  id: number;
-  customer_name?: string | null;
+  id: string;
+  account_number?: string | null;
+  account_name?: string | null;
   bank_name?: string | null;
   assigned_executive?: string | null;
-  assigned_executive_id?: number | null;
+  assigned_executive_id?: string | null;
+  executive_code?: string | null;
   status?: string | null;
-  loan_amount?: number | null;
+  balance_inr?: number | string | null;
+  customer_balance?: number | string | null;
   created_at?: string | null;
 };
 
 type PaymentRow = {
-  id: number;
-  case_id?: number | null;
-  amount?: number | null;
+  id: string;
+  case_id?: string | null;
+  amount?: number | string | null;
   payment_date?: string | null;
-  bank_name?: string | null;
-  executive_code?: string | null;
   executive_id?: string | null;
+  payment_mode?: string | null;
+  receipt_number?: string | null;
+  reference_number?: string | null;
+  verification_status?: string | null;
   created_at?: string | null;
 };
 
@@ -31,7 +36,12 @@ type ExecutiveRow = {
   name?: string | null;
   area?: string | null;
 };
-type VisitRow = { captured_at?: string | null; outcome?: string | null; executive_id?: string | null };
+type VisitRow = {
+  case_id?: string | null;
+  captured_at?: string | null;
+  outcome?: string | null;
+  executive_id?: string | null;
+};
 
 export default function ReportsPage(): React.ReactElement {
   const [cases, setCases] = useState<CaseRow[]>([]);
@@ -71,29 +81,16 @@ export default function ReportsPage(): React.ReactElement {
     setLoading(true);
 
     try {
-      const [allCases, allPayments, allProfiles, allVisits] = await Promise.all([
+      const [allCases, allPayments, allExecutives, allVisits] = await Promise.all([
         fetchAllRows<CaseRow>("cases"),
         fetchAllRows<PaymentRow>("payments"),
-        fetchAllRows<ExecutiveRow>("profiles"),
+        fetchAllRows<ExecutiveRow>("executives"),
         fetchAllRows<VisitRow>("case_visits"),
       ]);
 
-      const executiveProfiles = allProfiles.filter((profile) => {
-        const role = String((profile as ExecutiveRow & { role?: string | null }).role || "")
-          .trim()
-          .toLowerCase();
-
-        return (
-          !role ||
-          role === "executive" ||
-          role === "agent" ||
-          role === "field_executive"
-        );
-      });
-
       setCases(allCases);
       setPayments(allPayments);
-      setExecutives(executiveProfiles);
+      setExecutives(allExecutives);
       setVisits(allVisits);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Reports data load nahi ho saka.";
@@ -126,14 +123,19 @@ export default function ReportsPage(): React.ReactElement {
   }, [filteredPayments]);
 
   const totalAssignedLoan = useMemo(() => {
-    return cases.reduce((sum, c) => sum + (Number(c.loan_amount) || 0), 0);
+    return cases.reduce(
+      (sum, c) => sum + (Number(c.balance_inr ?? c.customer_balance) || 0) * 100000,
+      0
+    );
   }, [cases]);
 
   // Bank-Wise Recovery Metrics
   const bankReport = useMemo(() => {
     const map = new Map<string, { totalAmount: number; count: number }>();
+    const casesById = new Map(cases.map((item) => [String(item.id), item]));
     filteredPayments.forEach((p) => {
-      const bank = p.bank_name?.trim() || "Unspecified Bank";
+      const linkedCase = p.case_id ? casesById.get(String(p.case_id)) : undefined;
+      const bank = linkedCase?.bank_name?.trim() || "Unspecified Bank";
       const current = map.get(bank) || { totalAmount: 0, count: 0 };
       map.set(bank, {
         totalAmount: current.totalAmount + (Number(p.amount) || 0),
@@ -145,7 +147,7 @@ export default function ReportsPage(): React.ReactElement {
       totalAmount: data.totalAmount,
       count: data.count,
     }));
-  }, [filteredPayments]);
+  }, [cases, filteredPayments]);
 
   // Executive-Wise Performance Report
   const executiveReport = useMemo(() => {
@@ -164,13 +166,9 @@ export default function ReportsPage(): React.ReactElement {
     });
 
     filteredPayments.forEach((p) => {
-      const paymentCode = p.executive_code?.trim().toLowerCase();
-      const matchedCode =
-        paymentCode && map.has(paymentCode)
-          ? paymentCode
-          : p.executive_id
-            ? profileById.get(String(p.executive_id))
-            : undefined;
+      const matchedCode = p.executive_id
+        ? profileById.get(String(p.executive_id))
+        : undefined;
 
       if (!matchedCode) return;
 
@@ -196,12 +194,16 @@ export default function ReportsPage(): React.ReactElement {
 
   // CSV Export Handler
   const exportToCSV = () => {
+    const casesById = new Map(cases.map((item) => [String(item.id), item]));
+    const executivesById = new Map(
+      executives.map((item) => [String(item.id), item])
+    );
     const headers = ["Payment ID", "Case ID", "Bank Name", "Executive Code", "Amount (₹)", "Payment Date"];
     const rows = filteredPayments.map((p) => [
       p.id,
       p.case_id || "-",
-      `"${p.bank_name || "-"}"`,
-      `"${p.executive_code || "-"}"`,
+      `"${(p.case_id ? casesById.get(String(p.case_id))?.bank_name : null) || "-"}"`,
+      `"${(p.executive_id ? executivesById.get(String(p.executive_id))?.executive_code : null) || "-"}"`,
       p.amount || 0,
       p.payment_date || p.created_at || "-",
     ]);
