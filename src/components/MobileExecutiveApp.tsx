@@ -48,6 +48,16 @@ type CaseRow = {
   remarks?: string | null;
 };
 
+type PaymentRow = {
+  id: string;
+  case_id?: string | null;
+  amount?: number | string | null;
+  payment_date?: string | null;
+  payment_mode?: string | null;
+  reference_number?: string | null;
+  receipt_number?: string | null;
+};
+
 type Screen =
   | "login"
   | "register"
@@ -248,6 +258,12 @@ export default function MobileExecutiveApp() {
   const [visitOutcome, setVisitOutcome] = useState("Customer Met");
   const [visitRemarks, setVisitRemarks] = useState("");
   const [visitFollowUp, setVisitFollowUp] = useState("");
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMode, setPaymentMode] = useState("Cash Deposit");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [paymentReceipt, setPaymentReceipt] = useState("");
+  const [paymentRemarks, setPaymentRemarks] = useState("");
 
   useEffect(() => {
     const savedId = cleanText(localStorage.getItem("ssr_mobile_executive_id"));
@@ -531,6 +547,24 @@ export default function MobileExecutiveApp() {
     }
   }
 
+  async function loadPayments(row: ExecutiveRow | null = executive) {
+    if (!row) return;
+
+    try {
+      const { data, error } = await supabase.rpc("mobile_executive_payments", {
+        p_executive_id: String(row.id),
+        p_executive_code: executiveCode(row),
+        p_mobile: executivePhone(row),
+      });
+      if (error) throw error;
+      setPayments((data ?? []) as PaymentRow[]);
+    } catch (error) {
+      console.error("Payment history load error:", error);
+      setPayments([]);
+      setMessage(`Payment history error: ${errorMessage(error, "Unknown database error")}`);
+    }
+  }
+
   async function recordCaseVisit(visitCase: CaseRow) {
     if (!executive) {
       setMessage("Executive session nahi mili.");
@@ -538,6 +572,19 @@ export default function MobileExecutiveApp() {
     }
     if (!visitOutcome.trim() || !visitRemarks.trim()) {
       setMessage("Visit outcome aur remark required hai.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    const hasPayment = visitOutcome === "Payment Deposited";
+    const amount = toNumber(paymentAmount);
+    if (
+      hasPayment &&
+      (amount <= 0 ||
+        !paymentMode.trim() ||
+        (!paymentReference.trim() && !paymentReceipt.trim()))
+    ) {
+      setMessage("Payment amount, mode aur receipt/reference number required hai.");
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
@@ -606,6 +653,27 @@ export default function MobileExecutiveApp() {
       if (error) throw error;
       if (!data) throw new Error("Visit record database mein save nahi hua.");
 
+      if (hasPayment) {
+        const { error: paymentError } = await supabase.rpc("mobile_record_payment", {
+          p_case_id: visitCase.id,
+          p_executive_id: String(executive.id),
+          p_executive_code: executiveCode(executive),
+          p_mobile: executivePhone(executive),
+          p_amount: amount,
+          p_payment_mode: paymentMode,
+          p_reference_number: paymentReference.trim() || null,
+          p_receipt_number: paymentReceipt.trim() || null,
+          p_remarks: paymentRemarks.trim() || visitRemarks.trim(),
+          p_payment_date: new Date().toISOString().slice(0, 10),
+        });
+        if (paymentError) throw paymentError;
+        setPaymentAmount("");
+        setPaymentReference("");
+        setPaymentReceipt("");
+        setPaymentRemarks("");
+        await loadPayments(executive);
+      }
+
       setCurrentCoords(coords);
       setCases((current) =>
         current.map((item) =>
@@ -615,7 +683,11 @@ export default function MobileExecutiveApp() {
       setSelectedCase((current) =>
         current?.id === visitCase.id ? { ...current, status: "Visited" } : current
       );
-      setMessage("Visit saved: camera photo par GPS stamp lagkar upload ho gayi.");
+      setMessage(
+        hasPayment
+          ? "Visit aur bank payment record GPS photo ke saath save ho gaye."
+          : "Visit saved: camera photo par GPS stamp lagkar upload ho gayi."
+      );
       setVisitRemarks("");
       setVisitFollowUp("");
     } catch (error) {
@@ -905,9 +977,46 @@ export default function MobileExecutiveApp() {
           <div style={{ paddingBottom: 80 }}>
             <section style={styles.card}>
               <h1 style={styles.title}>Payments & Collections</h1>
-              <div style={styles.empty}>
-                Payment history module jaldi update hoga.
-              </div>
+              <p style={styles.subtext}>
+                Customer ke bank payment aur recovery records.
+              </p>
+              {payments.length === 0 ? (
+                <div style={styles.empty}>Abhi koi payment record nahi hai.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {payments.map((payment) => {
+                    const linkedCase = cases.find(
+                      (item) => item.id === payment.case_id
+                    );
+                    return (
+                      <article key={payment.id} style={styles.infoBox}>
+                        <b>
+                          {linkedCase
+                            ? customerName(linkedCase)
+                            : "Recovery Payment"}
+                        </b>
+                        <span>
+                          Case: {linkedCase ? caseNumber(linkedCase) : payment.case_id}
+                        </span>
+                        <span>
+                          Amount: ₹{toNumber(payment.amount).toLocaleString("en-IN")}
+                        </span>
+                        <span>Mode: {cleanText(payment.payment_mode) || "-"}</span>
+                        <span>
+                          Receipt/Ref: {cleanText(
+                            payment.receipt_number || payment.reference_number
+                          ) || "-"}
+                        </span>
+                        <span>
+                          Date: {payment.payment_date
+                            ? new Date(payment.payment_date).toLocaleDateString("en-IN")
+                            : "-"}
+                        </span>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
             </section>
           </div>
         )}
@@ -1037,10 +1146,22 @@ export default function MobileExecutiveApp() {
             <section style={{ ...styles.remarksBox, display: "grid", gap: 10 }}>
               <span>Visit Report (photo se pehle bharein)</span>
               <select value={visitOutcome} onChange={(event) => setVisitOutcome(event.target.value)} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca", background: "white" }}>
-                <option>Customer Met</option><option>Customer Not Available</option><option>House Locked</option><option>Payment Promise</option><option>Refused Payment</option><option>Wrong Address</option><option>Other</option>
+                <option>Customer Met</option><option>Customer Not Available</option><option>House Locked</option><option>Payment Promise</option><option>Payment Deposited</option><option>Refused Payment</option><option>Wrong Address</option><option>Other</option>
               </select>
               <textarea value={visitRemarks} onChange={(event) => setVisitRemarks(event.target.value)} placeholder="Visit me kya hua? Mandatory remark..." rows={3} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca", resize: "vertical" }} />
               <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 800 }}>Next Follow-up (optional)<input type="date" value={visitFollowUp} onChange={(event) => setVisitFollowUp(event.target.value)} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca" }} /></label>
+              {visitOutcome === "Payment Deposited" && (
+                <div style={{ display: "grid", gap: 10, padding: 12, borderRadius: 12, background: "#ecfdf5", border: "1px solid #86efac" }}>
+                  <b>Bank Payment Details</b>
+                  <input value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} inputMode="decimal" placeholder="Payment amount ₹" style={styles.input} />
+                  <select value={paymentMode} onChange={(event) => setPaymentMode(event.target.value)} style={styles.input}>
+                    <option>Cash Deposit</option><option>UPI</option><option>NEFT</option><option>RTGS</option><option>Cheque</option><option>Other</option>
+                  </select>
+                  <input value={paymentReceipt} onChange={(event) => setPaymentReceipt(event.target.value)} placeholder="Bank receipt number" style={styles.input} />
+                  <input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="UTR / transaction reference" style={styles.input} />
+                  <textarea value={paymentRemarks} onChange={(event) => setPaymentRemarks(event.target.value)} placeholder="Payment remark (optional)" rows={2} style={{ ...styles.input, height: "auto", paddingTop: 12 }} />
+                </div>
+              )}
             </section>
 
             <section style={styles.detailActions}>
@@ -1101,7 +1222,10 @@ export default function MobileExecutiveApp() {
                   ...styles.navItem,
                   color: screen === "payments" ? "#b91c1c" : "#7f1d1d",
                 }}
-                onClick={() => setScreen("payments")}
+                onClick={() => {
+                  setScreen("payments");
+                  void loadPayments();
+                }}
               >
                 💳 <span>Payments</span>
               </button>

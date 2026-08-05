@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 
 type RawRow = Record<string, unknown>;
-type PaymentStatus = "All" | "Pending" | "Verified" | "Rejected";
+type PaymentStatus = "All" | "Recorded" | "Pending" | "Verified" | "Rejected";
 
 type PaymentRecord = {
   id: string;
@@ -41,6 +41,8 @@ function numberValue(value: unknown): number {
 function normalizeStatus(value: unknown): Exclude<PaymentStatus, "All"> {
   const status = text(value).toLowerCase();
 
+  if (status === "recorded") return "Recorded";
+
   if (["verified", "approved", "paid", "completed", "success"].includes(status)) {
     return "Verified";
   }
@@ -62,7 +64,7 @@ function formatDate(value: unknown): string {
   return date.toLocaleDateString("en-IN");
 }
 
-async function fetchAll(table: "payments" | "cases" | "profiles") {
+async function fetchAll(table: "payments" | "cases" | "executives") {
   const rows: RawRow[] = [];
   let from = 0;
 
@@ -100,7 +102,7 @@ function PaymentsPage() {
       const [paymentRows, caseRows, profileRows] = await Promise.all([
         fetchAll("payments"),
         fetchAll("cases"),
-        fetchAll("profiles"),
+        fetchAll("executives"),
       ]);
 
       const casesById = new Map<string, RawRow>();
@@ -142,12 +144,12 @@ function PaymentsPage() {
           mobile: first(
             payment,
             ["mobile", "phone"],
-            first(caseRow, ["mobile", "mobile_no", "phone"], "-")
+            first(caseRow, ["mobile_number", "mobile", "mobile_no", "phone"], "-")
           ),
           caseNumber: first(
             payment,
             ["case_number"],
-            first(caseRow, ["case_number", "account_no", "id"], "-")
+            first(caseRow, ["account_number", "case_number", "account_no", "id"], "-")
           ),
           executiveName: first(
             payment,
@@ -156,8 +158,8 @@ function PaymentsPage() {
           ),
           bankName: first(
             payment,
-            ["branch_name"],
-            first(caseRow, ["branch_name", "branch", "branch_name"], "-")
+            ["bank_name"],
+            first(caseRow, ["bank_name", "branch"], "-")
           ),
           amount: numberValue(
             payment.amount ??
@@ -223,7 +225,7 @@ function PaymentsPage() {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "profiles" },
+        { event: "*", schema: "public", table: "executives" },
         () => void loadPayments(true)
       )
       .subscribe();
@@ -254,11 +256,9 @@ function PaymentsPage() {
   }, [payments, search, statusFilter]);
 
   const totalAmount = payments.reduce((total, payment) => total + payment.amount, 0);
-  const verifiedAmount = payments
-    .filter((payment) => payment.status === "Verified")
-    .reduce((total, payment) => total + payment.amount, 0);
-  const pendingCount = payments.filter((payment) => payment.status === "Pending").length;
-  const rejectedCount = payments.filter((payment) => payment.status === "Rejected").length;
+  const recordedCount = payments.filter(
+    (payment) => payment.status === "Recorded"
+  ).length;
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat("en-IN", {
@@ -294,7 +294,7 @@ function PaymentsPage() {
         .payments-customer strong{display:block;color:#0f172a}.payments-customer span{display:block;margin-top:3px;color:#94a3b8}
         .payments-amount{font-weight:900;color:#0f172a}
         .payments-badge{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:10px;font-weight:900}
-        .pending{background:#fffbeb;color:#b45309}.verified{background:#ecfdf5;color:#047857}.rejected{background:#fef2f2;color:#b91c1c}
+        .recorded,.verified{background:#ecfdf5;color:#047857}.pending{background:#fffbeb;color:#b45309}.rejected{background:#fef2f2;color:#b91c1c}
         .payments-empty{padding:50px 20px;text-align:center;color:#64748b;font-weight:700}
         @media(max-width:900px){.payments-stats{grid-template-columns:repeat(2,1fr)}.payments-toolbar{grid-template-columns:1fr}}
         @media(max-width:600px){.payments-page{padding:14px}.payments-hero{align-items:flex-start;flex-direction:column}.payments-stats{grid-template-columns:1fr}}
@@ -329,16 +329,16 @@ function PaymentsPage() {
           <strong>{formatCurrency(totalAmount)}</strong>
         </article>
         <article className="payments-stat">
-          <span>VERIFIED AMOUNT</span>
-          <strong>{formatCurrency(verifiedAmount)}</strong>
+          <span>RECORDED AMOUNT</span>
+          <strong>{formatCurrency(totalAmount)}</strong>
         </article>
         <article className="payments-stat">
-          <span>PENDING VERIFICATION</span>
-          <strong>{pendingCount}</strong>
+          <span>TOTAL PAYMENTS</span>
+          <strong>{payments.length}</strong>
         </article>
         <article className="payments-stat">
-          <span>REJECTED PAYMENTS</span>
-          <strong>{rejectedCount}</strong>
+          <span>RECORDED ENTRIES</span>
+          <strong>{recordedCount}</strong>
         </article>
       </section>
 
@@ -365,6 +365,7 @@ function PaymentsPage() {
             onChange={(event) => setStatusFilter(event.target.value as PaymentStatus)}
           >
             <option value="All">All Status</option>
+            <option value="Recorded">Recorded</option>
             <option value="Pending">Pending</option>
             <option value="Verified">Verified</option>
             <option value="Rejected">Rejected</option>
