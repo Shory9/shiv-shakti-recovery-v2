@@ -27,6 +27,16 @@ type ProfileRow = {
   status?: string | null;
 };
 
+type VisitRow = {
+  id: string;
+  case_id: string;
+  executive_id: string;
+  photo_path: string;
+  latitude: number;
+  longitude: number;
+  captured_at: string;
+};
+
 type CaseItem = {
   id: string;
   accountNo: string;
@@ -39,6 +49,11 @@ type CaseItem = {
   executive: string;
   amount: number;
   status: CaseStatus;
+};
+
+type VisitProof = VisitRow & {
+  photoUrl: string;
+  caseItem: CaseItem;
 };
 
 type EditForm = {
@@ -90,6 +105,8 @@ function CasesPage() {
   const [page, setPage] = useState(1);
 
   const [viewCase, setViewCase] = useState<CaseItem | null>(null);
+  const [visitProof, setVisitProof] = useState<VisitProof | null>(null);
+  const [visitLoadingId, setVisitLoadingId] = useState("");
   const [editCase, setEditCase] = useState<CaseItem | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({
     customer: "",
@@ -321,6 +338,42 @@ function CasesPage() {
     setSuccess("");
   }
 
+  async function openVisitProof(item: CaseItem) {
+    setVisitLoadingId(item.id);
+    setError("");
+
+    try {
+      const { data, error: visitError } = await supabase
+        .from("case_visits")
+        .select("id,case_id,executive_id,photo_path,latitude,longitude,captured_at")
+        .eq("case_id", item.id)
+        .order("captured_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (visitError) throw visitError;
+      if (!data) throw new Error("Is case ka visit proof abhi upload nahi hua.");
+
+      const visit = data as VisitRow;
+      const { data: signedPhoto, error: photoError } = await supabase.storage
+        .from("visit-photos")
+        .createSignedUrl(visit.photo_path, 3600);
+
+      if (photoError) throw photoError;
+      if (!signedPhoto?.signedUrl) {
+        throw new Error("Visit photo open nahi ho paayi.");
+      }
+
+      setVisitProof({ ...visit, photoUrl: signedPhoto.signedUrl, caseItem: item });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Visit proof load nahi hua.";
+      setError(message);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } finally {
+      setVisitLoadingId("");
+    }
+  }
+
   async function saveCase() {
     if (!editCase) return;
 
@@ -409,7 +462,7 @@ function CasesPage() {
         .cases-table-wrap{width:100%;max-height:600px;overflow:auto;border:1px solid #e2e8f0;border-radius:15px}.cases-table{width:100%;min-width:1120px;border-collapse:separate;border-spacing:0;background:#fff;font-size:13px}.cases-table th{position:sticky;top:0;z-index:2;padding:13px 14px;border-bottom:1px solid #e2e8f0;background:#f8fafc;color:#475569;text-align:left;font-size:11px;font-weight:850;letter-spacing:.045em;text-transform:uppercase;white-space:nowrap}.cases-table td{padding:14px;border-bottom:1px solid #eef2f7;color:#334155;vertical-align:middle}.cases-table tbody tr:hover td{background:#fbfdff}.case-customer{min-width:190px}.case-customer strong{display:block;color:#0f172a;font-size:13px}.case-customer span{display:block;margin-top:4px;color:#64748b;font-size:12px}.case-account{color:#0f172a;font-weight:800;font-variant-numeric:tabular-nums}.case-money{color:#0f172a;font-weight:850;white-space:nowrap}
         .case-status{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font-size:11px;font-weight:850;white-space:nowrap}.case-status.pending{color:#b45309;background:#fffbeb}.case-status.visited{color:#1d4ed8;background:#eff6ff}.case-status.paid{color:#047857;background:#ecfdf5}.case-status.overdue{color:#b91c1c;background:#fef2f2}.case-actions{display:flex;gap:7px}.case-action-btn{min-height:34px;padding:0 10px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#334155;font-size:11px;font-weight:800;cursor:pointer}.case-action-btn.primary{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}.case-action-btn:disabled{opacity:.55;cursor:not-allowed}.cases-empty{padding:45px 20px;color:#64748b;text-align:center}
         .cases-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}.cases-pagination-info{color:#64748b;font-size:13px}.cases-pagination-buttons{display:flex;align-items:center;gap:8px}.cases-pagination button{height:36px;padding:0 13px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#334155;font-weight:800;cursor:pointer}.cases-pagination button:disabled{opacity:.45;cursor:not-allowed}
-        .cases-modal-backdrop{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(2,6,23,.58)}.cases-modal{width:min(720px,100%);max-height:92vh;overflow:auto;padding:22px;border-radius:20px;background:#fff;box-shadow:0 30px 80px rgba(2,6,23,.35)}.cases-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.cases-modal-head h3{margin:0}.cases-close{border:0;background:#f1f5f9;width:36px;height:36px;border-radius:9px;cursor:pointer;font-size:18px}.cases-detail-grid,.cases-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.cases-detail{padding:13px;border:1px solid #e2e8f0;border-radius:12px}.cases-detail span{display:block;color:#64748b;font-size:11px;font-weight:800;text-transform:uppercase}.cases-detail strong{display:block;margin-top:6px;color:#0f172a}.cases-modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.cases-modal-actions button{height:42px;padding:0 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;font-weight:800;cursor:pointer}.cases-modal-actions .save{border-color:#2563eb;background:#2563eb;color:#fff}
+        .cases-modal-backdrop{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(2,6,23,.58)}.cases-modal{width:min(720px,100%);max-height:92vh;overflow:auto;padding:22px;border-radius:20px;background:#fff;box-shadow:0 30px 80px rgba(2,6,23,.35)}.cases-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.cases-modal-head h3{margin:0}.cases-close{border:0;background:#f1f5f9;width:36px;height:36px;border-radius:9px;cursor:pointer;font-size:18px}.cases-detail-grid,.cases-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.cases-detail{padding:13px;border:1px solid #e2e8f0;border-radius:12px}.cases-detail span{display:block;color:#64748b;font-size:11px;font-weight:800;text-transform:uppercase}.cases-detail strong{display:block;margin-top:6px;color:#0f172a}.cases-modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.cases-modal-actions button,.cases-modal-actions a{display:inline-flex;align-items:center;justify-content:center;height:42px;padding:0 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#334155;font-weight:800;text-decoration:none;cursor:pointer}.cases-modal-actions .save{border-color:#2563eb;background:#2563eb;color:#fff}.visit-proof-photo{display:block;width:100%;max-height:62vh;object-fit:contain;border-radius:15px;background:#0f172a}.visit-proof-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}.visit-proof-meta div{padding:12px;border:1px solid #e2e8f0;border-radius:11px;background:#f8fafc}.visit-proof-meta span{display:block;color:#64748b;font-size:10px;font-weight:850;text-transform:uppercase}.visit-proof-meta strong{display:block;margin-top:5px;color:#0f172a;word-break:break-word}
         @media(max-width:1050px){.cases-stats{grid-template-columns:repeat(2,1fr)}.cases-filter-grid{grid-template-columns:1fr}}@media(max-width:720px){.cases-page{padding:14px}.cases-hero,.cases-panel-head,.cases-pagination{align-items:flex-start;flex-direction:column}.cases-hero-badge{width:100%}.cases-detail-grid,.cases-edit-grid{grid-template-columns:1fr}}@media(max-width:480px){.cases-stats{grid-template-columns:1fr}}
       `}</style>
 
@@ -460,7 +513,7 @@ function CasesPage() {
                   <td>{item.bank}</td><td>{item.area}</td><td>{item.executive}</td>
                   <td><span className="case-money">₹{item.amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</span></td>
                   <td><span className={`case-status ${item.status.toLowerCase()}`}>{item.status}</span></td>
-                  <td><div className="case-actions"><button className="case-action-btn primary" onClick={() => setViewCase(item)}>View</button><button className="case-action-btn" onClick={() => openEdit(item)}>Edit</button></div></td>
+                  <td><div className="case-actions"><button className="case-action-btn primary" onClick={() => setViewCase(item)}>View</button><button className="case-action-btn" onClick={() => openEdit(item)}>Edit</button><button className="case-action-btn primary" disabled={visitLoadingId === item.id} onClick={() => void openVisitProof(item)}>{visitLoadingId === item.id ? "Opening..." : "Visit Proof"}</button></div></td>
                 </tr>
               )) : <tr><td colSpan={8}><div className="cases-empty">No matching cases found.</div></td></tr>}
             </tbody>
@@ -473,6 +526,8 @@ function CasesPage() {
       </section>
 
       {viewCase && <div className="cases-modal-backdrop" onMouseDown={() => setViewCase(null)}><div className="cases-modal" onMouseDown={(event) => event.stopPropagation()}><div className="cases-modal-head"><h3>Case Details</h3><button className="cases-close" onClick={() => setViewCase(null)}>×</button></div><div className="cases-detail-grid"><div className="cases-detail"><span>Account Number</span><strong>{viewCase.accountNo}</strong></div><div className="cases-detail"><span>Customer</span><strong>{viewCase.customer}</strong></div><div className="cases-detail"><span>Mobile</span><strong>{viewCase.mobile}</strong></div><div className="cases-detail"><span>Bank</span><strong>{viewCase.bank}</strong></div><div className="cases-detail"><span>Area</span><strong>{viewCase.area}</strong></div><div className="cases-detail"><span>Executive</span><strong>{viewCase.executive}</strong></div><div className="cases-detail"><span>Outstanding</span><strong>₹{viewCase.amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</strong></div><div className="cases-detail"><span>Status</span><strong>{viewCase.status}</strong></div></div></div></div>}
+
+      {visitProof && <div className="cases-modal-backdrop" onMouseDown={() => setVisitProof(null)}><div className="cases-modal" onMouseDown={(event) => event.stopPropagation()}><div className="cases-modal-head"><div><h3>Visit Proof</h3><small>{visitProof.caseItem.customer} · {visitProof.caseItem.accountNo}</small></div><button className="cases-close" onClick={() => setVisitProof(null)}>×</button></div><img className="visit-proof-photo" src={visitProof.photoUrl} alt={`Visit proof for ${visitProof.caseItem.customer}`} /><div className="visit-proof-meta"><div><span>Executive</span><strong>{visitProof.caseItem.executive}</strong></div><div><span>Captured At</span><strong>{new Date(visitProof.captured_at).toLocaleString("en-IN")}</strong></div><div><span>Latitude</span><strong>{Number(visitProof.latitude).toFixed(6)}</strong></div><div><span>Longitude</span><strong>{Number(visitProof.longitude).toFixed(6)}</strong></div></div><div className="cases-modal-actions"><a className="save" href={`https://www.google.com/maps?q=${visitProof.latitude},${visitProof.longitude}`} target="_blank" rel="noreferrer">Open in Maps</a><button onClick={() => setVisitProof(null)}>Close</button></div></div></div>}
 
       {editCase && <div className="cases-modal-backdrop" onMouseDown={() => !saving && setEditCase(null)}><div className="cases-modal" onMouseDown={(event) => event.stopPropagation()}><div className="cases-modal-head"><h3>Edit Case</h3><button className="cases-close" disabled={saving} onClick={() => setEditCase(null)}>×</button></div><div className="cases-edit-grid">
         <div className="cases-field"><label>Customer Name</label><input className="cases-input" value={editForm.customer} onChange={(event) => setEditForm((current) => ({ ...current, customer: event.target.value }))} /></div>

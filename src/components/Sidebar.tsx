@@ -1,10 +1,11 @@
-type Menu =
+export type Menu =
   | "Dashboard"
   | "Bank Import"
   | "Cases"
   | "Executive"
   | "Executive App"
   | "GPS Tracking"
+  | "Field Visits"
   | "Payments"
   | "Reports";
 
@@ -20,6 +21,7 @@ const menuItems: { name: Menu; icon: string }[] = [
   { name: "Executive", icon: "👨‍💼" },
   { name: "Executive App", icon: "📱" },
   { name: "GPS Tracking", icon: "📍" },
+  { name: "Field Visits", icon: "📸" },
   { name: "Payments", icon: "💰" },
   { name: "Reports", icon: "📊" },
 ];

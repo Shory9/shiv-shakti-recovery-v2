@@ -1,12 +1,4 @@
-type Menu =
-  | "Dashboard"
-  | "Bank Import"
-  | "Cases"
-  | "Executive"
-  | "Executive App"
-  | "GPS Tracking"
-  | "Payments"
-  | "Reports";
+import type { Menu } from "./Sidebar";
 
 type HeaderProps = {
   activeMenu: Menu;

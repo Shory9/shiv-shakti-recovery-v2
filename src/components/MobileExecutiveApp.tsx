@@ -5,6 +5,13 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
+import {
+  Camera,
+  CameraDirection,
+  CameraResultType,
+  CameraSource,
+} from "@capacitor/camera";
+import { Geolocation } from "@capacitor/geolocation";
 import { supabase } from "../supabaseClient";
 
 type ExecutiveRow = {
@@ -105,13 +112,114 @@ function toNumber(value: unknown) {
 }
 
 function formatMoney(value: unknown) {
-  const amount = toNumber(value);
-  if (amount <= 0) return "Not available";
+  const amountInLakhs = toNumber(value);
+  if (amountInLakhs <= 0) return "";
 
-  return amount.toLocaleString("en-IN", {
+  const amountInRupees = amountInLakhs * 100000;
+
+  return amountInRupees.toLocaleString("en-IN", {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 0,
+  });
+}
+
+function cleanCaseRemarks(value: unknown) {
+  return cleanText(value)
+    .replace(/Resolved Area:\s*[^|]+(?:\||$)/i, "")
+    .replace(/Source File:\s*[^|]+(?:\||$)/i, "")
+    .replace(/\|\s*\|/g, "|")
+    .replace(/^\s*\|\s*|\s*\|\s*$/g, "")
+    .trim();
+}
+
+function stampVisitPhoto(
+  photo: Blob,
+  coords: { lat: number; lng: number },
+  visitCase: CaseRow,
+  visitExecutive: ExecutiveRow
+) {
+  return new Promise<Blob>((resolve, reject) => {
+    const imageUrl = URL.createObjectURL(photo);
+    const image = new Image();
+
+    image.onload = () => {
+      const maxSide = 1600;
+      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        URL.revokeObjectURL(imageUrl);
+        reject(new Error("Photo process nahi ho payi."));
+        return;
+      }
+
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const overlayHeight = Math.max(250, Math.round(canvas.height * 0.28));
+      const overlayTop = canvas.height - overlayHeight;
+      const padding = Math.max(22, Math.round(canvas.width * 0.025));
+      const titleSize = Math.max(28, Math.round(canvas.width * 0.035));
+      const textSize = Math.max(22, Math.round(canvas.width * 0.026));
+
+      context.fillStyle = "rgba(8, 15, 25, 0.82)";
+      context.fillRect(0, overlayTop, canvas.width, overlayHeight);
+      context.fillStyle = "#16a34a";
+      context.fillRect(padding, overlayTop + padding, Math.round(canvas.width * 0.28), titleSize + 20);
+      context.fillStyle = "#ffffff";
+      context.font = `700 ${titleSize}px sans-serif`;
+      context.fillText("VISIT CHECK-IN", padding + 14, overlayTop + padding + titleSize + 2);
+
+      const markerX = padding + 20;
+      const markerY = overlayTop + padding + titleSize + 72;
+      context.fillStyle = "#ef4444";
+      context.beginPath();
+      context.arc(markerX, markerY, 13, 0, Math.PI * 2);
+      context.fill();
+
+      const address = cleanText(visitCase.address) || caseArea(visitCase);
+      const capturedAt = new Date().toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "medium",
+      });
+      const lines = [
+        `${customerName(visitCase)} | ${caseNumber(visitCase)}`,
+        address,
+        `Lat ${coords.lat.toFixed(6)}  Long ${coords.lng.toFixed(6)}`,
+        `${capturedAt} | ${executiveName(visitExecutive)}`,
+      ];
+
+      context.fillStyle = "#ffffff";
+      context.font = `600 ${textSize}px sans-serif`;
+      const lineHeight = Math.round(textSize * 1.35);
+      lines.forEach((line, index) => {
+        const safeLine = line.length > 72 ? `${line.slice(0, 69)}...` : line;
+        context.fillText(
+          safeLine,
+          padding + 48,
+          markerY + index * lineHeight + Math.round(textSize * 0.35),
+          canvas.width - padding * 2 - 48
+        );
+      });
+
+      canvas.toBlob(
+        (blob) => {
+          URL.revokeObjectURL(imageUrl);
+          blob ? resolve(blob) : reject(new Error("GPS stamp photo nahi bani."));
+        },
+        "image/jpeg",
+        0.82
+      );
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl);
+      reject(new Error("Selected photo read nahi hui."));
+    };
+
+    image.src = imageUrl;
   });
 }
 
@@ -137,6 +245,9 @@ export default function MobileExecutiveApp() {
     lng: number;
   } | null>(null);
   const [gpsStatus, setGpsStatus] = useState("Idle");
+  const [visitOutcome, setVisitOutcome] = useState("Customer Met");
+  const [visitRemarks, setVisitRemarks] = useState("");
+  const [visitFollowUp, setVisitFollowUp] = useState("");
 
   useEffect(() => {
     const savedId = cleanText(localStorage.getItem("ssr_mobile_executive_id"));
@@ -384,12 +495,20 @@ export default function MobileExecutiveApp() {
     setMessage("");
 
     try {
-      const { error } = await supabase
-        .from("cases")
-        .update({ status: nextStatus })
-        .eq("id", caseId);
+      if (!executive) throw new Error("Executive session nahi mili.");
+
+      const { data, error } = await supabase.rpc("mobile_update_case_status", {
+        p_case_id: caseId,
+        p_executive_id: String(executive.id),
+        p_executive_code: executiveCode(executive),
+        p_mobile: executivePhone(executive),
+        p_status: nextStatus,
+      });
 
       if (error) throw error;
+      if (data !== true) {
+        throw new Error("Case assigned executive se match nahi hua.");
+      }
 
       setCases((current) =>
         current.map((item) =>
@@ -403,11 +522,110 @@ export default function MobileExecutiveApp() {
           : current
       );
     } catch (error) {
+      console.error("Case status update error:", error);
       setMessage(
-        error instanceof Error ? error.message : "Status update nahi hua."
+        `Status update error: ${errorMessage(error, "Unknown database error")}`
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function recordCaseVisit(visitCase: CaseRow) {
+    if (!executive) {
+      setMessage("Executive session nahi mili.");
+      return;
+    }
+    if (!visitOutcome.trim() || !visitRemarks.trim()) {
+      setMessage("Visit outcome aur remark required hai.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    setLoading(true);
+    setMessage("Camera open ho raha hai...");
+
+    try {
+      await Camera.requestPermissions({ permissions: ["camera"] });
+      const capturedPhoto = await Camera.getPhoto({
+        quality: 92,
+        width: 1800,
+        correctOrientation: true,
+        saveToGallery: false,
+        source: CameraSource.Camera,
+        resultType: CameraResultType.Uri,
+        direction: CameraDirection.Rear,
+      });
+
+      if (!capturedPhoto.webPath) {
+        throw new Error("Camera photo nahi mili.");
+      }
+
+      setMessage("Live GPS lock ho raha hai...");
+      await Geolocation.requestPermissions({ permissions: ["location"] });
+      const position = await Geolocation.getCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 20000,
+        maximumAge: 0,
+      });
+      const coords = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      };
+      const rawPhoto = await fetch(capturedPhoto.webPath).then((response) => {
+        if (!response.ok) throw new Error("Camera photo read nahi hui.");
+        return response.blob();
+      });
+      const photo = await stampVisitPhoto(rawPhoto, coords, visitCase, executive);
+      const photoPath = `${executive.id}/${visitCase.id}/${Date.now()}.jpg`;
+
+      setMessage("GPS-stamped visit photo upload ho rahi hai...");
+      const { error: uploadError } = await supabase.storage
+        .from("visit-photos")
+        .upload(photoPath, photo, {
+          cacheControl: "3600",
+          contentType: "image/jpeg",
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data, error } = await supabase.rpc("mobile_record_detailed_visit", {
+        p_case_id: visitCase.id,
+        p_executive_id: String(executive.id),
+        p_executive_code: executiveCode(executive),
+        p_mobile: executivePhone(executive),
+        p_photo_path: photoPath,
+        p_latitude: coords.lat,
+        p_longitude: coords.lng,
+        p_outcome: visitOutcome,
+        p_remarks: visitRemarks.trim(),
+        p_next_follow_up: visitFollowUp || null,
+      });
+
+      if (error) throw error;
+      if (!data) throw new Error("Visit record database mein save nahi hua.");
+
+      setCurrentCoords(coords);
+      setCases((current) =>
+        current.map((item) =>
+          item.id === visitCase.id ? { ...item, status: "Visited" } : item
+        )
+      );
+      setSelectedCase((current) =>
+        current?.id === visitCase.id ? { ...current, status: "Visited" } : current
+      );
+      setMessage("Visit saved: camera photo par GPS stamp lagkar upload ho gayi.");
+      setVisitRemarks("");
+      setVisitFollowUp("");
+    } catch (error) {
+      console.error("Visit capture error:", error);
+      setMessage(
+        `Visit save error: ${errorMessage(error, "Unknown visit error")}`
+      );
+    } finally {
+      setLoading(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }
 
@@ -740,66 +958,90 @@ export default function MobileExecutiveApp() {
             </section>
 
             <section style={styles.detailGrid}>
-              <div style={styles.detailBox}>
-                <span>Customer Mobile</span>
-                <strong>
-                  {cleanText(selectedCase.mobile_number) || "Not available"}
-                </strong>
-              </div>
+              {cleanText(selectedCase.mobile_number) && (
+                <div style={styles.detailBox}>
+                  <span>Customer Mobile</span>
+                  <strong>{cleanText(selectedCase.mobile_number)}</strong>
+                </div>
+              )}
+
               <div style={styles.detailBox}>
                 <span>Area</span>
                 <strong>{caseArea(selectedCase)}</strong>
               </div>
-              <div style={styles.detailBox}>
-                <span>Address</span>
-                <strong>
-                  {cleanText(selectedCase.address) || "Not available"}
-                </strong>
-              </div>
-              <div style={styles.detailBox}>
-                <span>Bank</span>
-                <strong>
-                  {cleanText(selectedCase.bank_name) || "Not available"}
-                </strong>
-              </div>
-              <div style={styles.detailBox}>
-                <span>Loan Amount</span>
-                <strong>{formatMoney(selectedCase.sanction_limit)}</strong>
-              </div>
-              <div style={styles.detailBox}>
-                <span>Outstanding</span>
-                <strong>
-                  {formatMoney(selectedCase.balance_inr)}
-                </strong>
-              </div>
-              <div style={styles.detailBox}>
-                <span>Customer Balance</span>
-                <strong>{formatMoney(selectedCase.customer_balance)}</strong>
-              </div>
-              <div style={styles.detailBox}>
-                <span>Scheme</span>
-                <strong>{cleanText(selectedCase.scheme_code) || "Not available"}</strong>
-              </div>
-              <div style={styles.detailBox}>
-                <span>Segment</span>
-                <strong>
-                  {cleanText(selectedCase.rev_seg) || "Not available"}
-                </strong>
-              </div>
-              <div style={styles.detailBox}>
-                <span>Category</span>
-                <strong>
-                  {cleanText(selectedCase.asset_class) || "Not available"}
-                </strong>
-              </div>
+
+              {cleanText(selectedCase.address) && (
+                <div style={styles.detailBox}>
+                  <span>Address</span>
+                  <strong>{cleanText(selectedCase.address)}</strong>
+                </div>
+              )}
+
+              {cleanText(selectedCase.bank_name) && (
+                <div style={styles.detailBox}>
+                  <span>Bank</span>
+                  <strong>{cleanText(selectedCase.bank_name)}</strong>
+                </div>
+              )}
+
+              {formatMoney(selectedCase.sanction_limit) && (
+                <div style={styles.detailBox}>
+                  <span>Loan Amount</span>
+                  <strong>{formatMoney(selectedCase.sanction_limit)}</strong>
+                </div>
+              )}
+
+              {formatMoney(selectedCase.balance_inr) && (
+                <div style={styles.detailBox}>
+                  <span>Outstanding</span>
+                  <strong>{formatMoney(selectedCase.balance_inr)}</strong>
+                </div>
+              )}
+
+              {formatMoney(selectedCase.customer_balance) && (
+                <div style={styles.detailBox}>
+                  <span>Customer Balance</span>
+                  <strong>{formatMoney(selectedCase.customer_balance)}</strong>
+                </div>
+              )}
+
+              {cleanText(selectedCase.scheme_code) && (
+                <div style={styles.detailBox}>
+                  <span>Scheme</span>
+                  <strong>{cleanText(selectedCase.scheme_code)}</strong>
+                </div>
+              )}
+
+              {cleanText(selectedCase.rev_seg) && (
+                <div style={styles.detailBox}>
+                  <span>Segment</span>
+                  <strong>{cleanText(selectedCase.rev_seg)}</strong>
+                </div>
+              )}
+
+              {cleanText(selectedCase.asset_class) && (
+                <div style={styles.detailBox}>
+                  <span>Category</span>
+                  <strong>{cleanText(selectedCase.asset_class)}</strong>
+                </div>
+              )}
             </section>
 
-            {cleanText(selectedCase.remarks) && (
+            {cleanCaseRemarks(selectedCase.remarks) && (
               <section style={styles.remarksBox}>
                 <span>Remarks</span>
-                <p>{cleanText(selectedCase.remarks)}</p>
+                <p>{cleanCaseRemarks(selectedCase.remarks)}</p>
               </section>
             )}
+
+            <section style={{ ...styles.remarksBox, display: "grid", gap: 10 }}>
+              <span>Visit Report (photo se pehle bharein)</span>
+              <select value={visitOutcome} onChange={(event) => setVisitOutcome(event.target.value)} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca", background: "white" }}>
+                <option>Customer Met</option><option>Customer Not Available</option><option>House Locked</option><option>Payment Promise</option><option>Refused Payment</option><option>Wrong Address</option><option>Other</option>
+              </select>
+              <textarea value={visitRemarks} onChange={(event) => setVisitRemarks(event.target.value)} placeholder="Visit me kya hua? Mandatory remark..." rows={3} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca", resize: "vertical" }} />
+              <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 800 }}>Next Follow-up (optional)<input type="date" value={visitFollowUp} onChange={(event) => setVisitFollowUp(event.target.value)} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca" }} /></label>
+            </section>
 
             <section style={styles.detailActions}>
               <button
@@ -813,11 +1055,9 @@ export default function MobileExecutiveApp() {
                 type="button"
                 style={styles.actionButton}
                 disabled={loading}
-                onClick={() =>
-                  void updateCaseStatus(selectedCase.id, "Visited")
-                }
+                onClick={() => void recordCaseVisit(selectedCase)}
               >
-                Mark Visited
+                {loading ? "Saving Visit..." : "Mark Visited + Photo"}
               </button>
               <button
                 type="button"

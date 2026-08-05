@@ -7,6 +7,7 @@ import CasesPage from "./components/CasesPage";
 import DashboardPage from "./components/DashboardPage";
 import ExecutiveAppPage from "./components/ExecutiveAppPage";
 import ExecutivesPage from "./components/ExecutivesPage";
+import FieldVisitsPage from "./components/FieldVisitsPage";
 import GPSPage from "./components/GPSPage";
 import Header from "./components/Header";
 import LoginPage from "./components/LoginPage";
@@ -14,16 +15,7 @@ import MobileExecutiveApp from "./components/MobileExecutiveApp";
 import PaymentsPage from "./components/PaymentsPage";
 import ReportsPage from "./components/ReportsPage";
 import Sidebar from "./components/Sidebar";
-
-type Menu =
-  | "Dashboard"
-  | "Bank Import"
-  | "Cases"
-  | "Executive"
-  | "Executive App"
-  | "GPS Tracking"
-  | "Payments"
-  | "Reports";
+import type { Menu } from "./components/Sidebar";
 
 function App() {
   const isNativeApp = Capacitor.isNativePlatform();
@@ -59,6 +51,9 @@ function App() {
 
       case "GPS Tracking":
         return <GPSPage />;
+
+      case "Field Visits":
+        return <FieldVisitsPage />;
 
       case "Payments":
         return <PaymentsPage />;

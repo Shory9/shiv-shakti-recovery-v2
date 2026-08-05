@@ -31,11 +31,13 @@ type ExecutiveRow = {
   name?: string | null;
   area?: string | null;
 };
+type VisitRow = { captured_at?: string | null; outcome?: string | null; executive_id?: string | null };
 
 export default function ReportsPage(): React.ReactElement {
   const [cases, setCases] = useState<CaseRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [executives, setExecutives] = useState<ExecutiveRow[]>([]);
+  const [visits, setVisits] = useState<VisitRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
   // Date Filters
@@ -69,10 +71,11 @@ export default function ReportsPage(): React.ReactElement {
     setLoading(true);
 
     try {
-      const [allCases, allPayments, allProfiles] = await Promise.all([
+      const [allCases, allPayments, allProfiles, allVisits] = await Promise.all([
         fetchAllRows<CaseRow>("cases"),
         fetchAllRows<PaymentRow>("payments"),
         fetchAllRows<ExecutiveRow>("profiles"),
+        fetchAllRows<VisitRow>("case_visits"),
       ]);
 
       const executiveProfiles = allProfiles.filter((profile) => {
@@ -91,6 +94,7 @@ export default function ReportsPage(): React.ReactElement {
       setCases(allCases);
       setPayments(allPayments);
       setExecutives(executiveProfiles);
+      setVisits(allVisits);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Reports data load nahi ho saka.";
       console.error("Error loading reports data:", message);
@@ -114,6 +118,7 @@ export default function ReportsPage(): React.ReactElement {
       return true;
     });
   }, [payments, fromDate, toDate]);
+  const filteredVisits = useMemo(() => visits.filter((v) => { const d=(v.captured_at||"").split("T")[0]; if(fromDate&&d&&d<fromDate)return false;if(toDate&&d&&d>toDate)return false;return true;}),[visits,fromDate,toDate]);
 
   // Real Analytics Calculations
   const totalRecoveryAmount = useMemo(() => {
@@ -308,6 +313,7 @@ export default function ReportsPage(): React.ReactElement {
                 {executives.length}
               </h2>
             </div>
+            <div style={{ backgroundColor: "#ffffff", padding: "20px", borderRadius: "14px", border: "1px solid #e2e8f0", boxShadow: "0 4px 12px rgba(0,0,0,0.03)" }}><span style={{ fontSize: "11px", fontWeight: "800", color: "#64748b", textTransform: "uppercase" }}>Verified Field Visits</span><h2 style={{ fontSize: "28px", fontWeight: "800", color: "#7c3aed", margin: "8px 0 0 0" }}>{filteredVisits.length}</h2></div>
           </div>
 
           {/* Grid Layout for Detailed Reports */}
