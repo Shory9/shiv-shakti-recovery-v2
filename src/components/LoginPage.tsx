@@ -15,6 +15,9 @@ function LoginPage({ onLogin }: LoginPageProps) {
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [isRecoveryMode, setIsRecoveryMode] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   useEffect(() => {
     const savedEmail = localStorage.getItem("ssr_admin_email");
@@ -23,6 +26,21 @@ function LoginPage({ onLogin }: LoginPageProps) {
       setEmail(savedEmail);
       setRememberMe(true);
     }
+  }, []);
+
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setIsRecoveryMode(true);
+        setPassword("");
+        setError("");
+        setSuccessMessage("Naya password set karo.");
+      }
+    });
+
+    return () => {
+      data.subscription.unsubscribe();
+    };
   }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -116,6 +134,50 @@ function LoginPage({ onLogin }: LoginPageProps) {
     }
   }
 
+  async function handleUpdatePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (newPassword.length < 8) {
+      setError("Naya password kam se kam 8 characters ka hona chahiye.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError("Dono naye passwords same nahi hain.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+      setSuccessMessage("");
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      await supabase.auth.signOut();
+      setNewPassword("");
+      setConfirmPassword("");
+      setIsRecoveryMode(false);
+      setSuccessMessage(
+        "Password successfully badal gaya. Ab naye password se login karo."
+      );
+    } catch (updateError) {
+      const message =
+        updateError instanceof Error
+          ? updateError.message
+          : "Password update nahi ho paya.";
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="premium-login-page">
       <section className="login-brand-panel">
@@ -182,6 +244,69 @@ function LoginPage({ onLogin }: LoginPageProps) {
           <h1>Admin Login</h1>
           <p className="login-subtitle">Shiv Shakti Recovery CRM V2</p>
 
+          {isRecoveryMode && (
+            <form
+              className="premium-login-form"
+              onSubmit={handleUpdatePassword}
+            >
+              <label htmlFor="new-password">New Password</label>
+
+              <div className="login-input-box">
+                <span className="input-icon">🔒</span>
+                <input
+                  id="new-password"
+                  type={showPassword ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  placeholder="Minimum 8 characters"
+                  autoComplete="new-password"
+                  disabled={loading}
+                  required
+                />
+              </div>
+
+              <label htmlFor="confirm-password">Confirm New Password</label>
+
+              <div className="login-input-box">
+                <span className="input-icon">🔒</span>
+                <input
+                  id="confirm-password"
+                  type={showPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="Password dobara enter karo"
+                  autoComplete="new-password"
+                  disabled={loading}
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowPassword((current) => !current)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  disabled={loading}
+                >
+                  {showPassword ? "🙈" : "👁"}
+                </button>
+              </div>
+
+              {error && <div className="login-error-message">{error}</div>}
+              {successMessage && (
+                <div className="login-success-message">{successMessage}</div>
+              )}
+
+              <button
+                type="submit"
+                className="premium-login-button"
+                disabled={loading}
+              >
+                <span>{loading ? "Saving..." : "Save New Password"}</span>
+                <strong>{loading ? "⌛" : "→"}</strong>
+              </button>
+            </form>
+          )}
+
+          {!isRecoveryMode && (
           <form className="premium-login-form" onSubmit={handleSubmit}>
             <label htmlFor="admin-email">Email Address</label>
 
@@ -263,6 +388,7 @@ function LoginPage({ onLogin }: LoginPageProps) {
               <strong>{loading ? "⌛" : "→"}</strong>
             </button>
           </form>
+          )}
 
           <div className="login-footer">
             <strong>Shiv Shakti</strong> Recovery CRM V2
