@@ -8,6 +8,7 @@ import React, {
 import * as XLSX from "xlsx";
 import { supabase } from "../supabaseClient";
 import { normalizeText, resolveCaseArea } from "../utils/caseImport";
+import "./BankImport.css";
 
 type ExcelRow = Record<string, unknown>;
 
@@ -135,6 +136,19 @@ function formatExecutive(executive: Executive): string {
   return `${executive.executive_code || "NO CODE"} ${executive.full_name || "Executive"}`;
 }
 
+function assignmentAreaKey(value: unknown): string {
+  const normalized = normalizeText(value);
+  const aliases: Record<string, string> = {
+    MANDSOUR: "MANDSAUR",
+    NEMUCH: "NEEMUCH",
+    MANAWAR: "MANAVAR",
+    DBMANDSAUR: "DBMANDSAUR",
+    MENDBMANDSAUR: "DBMANDSAUR",
+  };
+
+  return aliases[normalized] || normalized;
+}
+
 function BankImport(): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -153,6 +167,7 @@ function BankImport(): React.ReactElement {
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState("");
+  const [manualExecutiveByArea, setManualExecutiveByArea] = useState<Record<string, string>>({});
 
   useEffect(() => {
     void loadInitialData();
@@ -179,7 +194,7 @@ function BankImport(): React.ReactElement {
       const executiveAreaById = new Map<string, string>();
 
       activeExecutives.forEach((executive) => {
-        const areaKey = normalizeText(executive.area);
+        const areaKey = assignmentAreaKey(executive.area);
         if (areaKey) executiveAreaById.set(executive.id, areaKey);
       });
 
@@ -237,6 +252,7 @@ function BankImport(): React.ReactElement {
     setMissingMobileCount(0);
     setImportProgress(0);
     setStatusMessage("Excel read ho rahi hai...");
+    setManualExecutiveByArea({});
 
     try {
       const arrayBuffer = await file.arrayBuffer();
@@ -305,7 +321,8 @@ function BankImport(): React.ReactElement {
         const resolvedArea = resolveCaseArea(
           alpha || "",
           branch || "",
-          address || ""
+          address || "",
+          accountNumber
         );
 
         uniqueCases.set(normalizedAccount, {
@@ -361,35 +378,37 @@ function BankImport(): React.ReactElement {
 
     records.forEach((record) => {
       const area = record.resolvedArea || record.branch || "Unmatched Area";
-      const current = map.get(area) ?? {
+      const areaKey = assignmentAreaKey(area);
+      const current = map.get(areaKey) ?? {
         area,
         total: 0,
         newCases: 0,
         alreadyAssigned:
-          existingAssignedByArea[normalizeText(area)] || 0,
+          existingAssignedByArea[areaKey] || 0,
         executives: executives.filter(
           (executive) =>
-            normalizeText(executive.area) === normalizeText(area)
+            assignmentAreaKey(executive.area) === areaKey
         ),
       };
 
       current.total += 1;
       if (!record.isExisting) current.newCases += 1;
-      map.set(area, current);
+      map.set(areaKey, current);
     });
 
     executives.forEach((executive) => {
       const area = executive.area?.trim();
-      if (!area || map.has(area)) return;
+      const areaKey = assignmentAreaKey(area);
+      if (!area || map.has(areaKey)) return;
 
-      map.set(area, {
+      map.set(areaKey, {
         area,
         total: 0,
         newCases: 0,
         alreadyAssigned:
-          existingAssignedByArea[normalizeText(area)] || 0,
+          existingAssignedByArea[areaKey] || 0,
         executives: executives.filter(
-          (item) => normalizeText(item.area) === normalizeText(area)
+          (item) => assignmentAreaKey(item.area) === areaKey
         ),
       });
     });
@@ -401,7 +420,11 @@ function BankImport(): React.ReactElement {
 
   const autoAssignedPreview = marketSummaries.reduce(
     (total, summary) =>
-      total + (summary.executives.length > 0 ? summary.newCases : 0),
+      total +
+      (summary.executives.length > 0 ||
+      Boolean(manualExecutiveByArea[assignmentAreaKey(summary.area)])
+        ? summary.newCases
+        : 0),
     0
   );
 
@@ -418,18 +441,22 @@ function BankImport(): React.ReactElement {
       executives.forEach((executive) => {
         workload.set(
           executive.id,
-          existingAssignedByArea[normalizeText(executive.area)] || 0
+          existingAssignedByArea[assignmentAreaKey(executive.area)] || 0
         );
       });
 
       const payload = newRecords.map((record) => {
+        const areaKey = assignmentAreaKey(record.resolvedArea || record.branch || "Unmatched Area");
+        const manualExecutiveId = manualExecutiveByArea[areaKey];
         const matchingExecutives = executives.filter(
           (executive) =>
-            normalizeText(executive.area) ===
-            normalizeText(record.resolvedArea)
+            assignmentAreaKey(executive.area) ===
+            assignmentAreaKey(record.resolvedArea)
         );
 
-        const selectedExecutive = [...matchingExecutives].sort((a, b) => {
+        const selectedExecutive = executives.find(
+          (executive) => executive.id === manualExecutiveId
+        ) ?? [...matchingExecutives].sort((a, b) => {
           const aLoad = workload.get(a.id) || 0;
           const bLoad = workload.get(b.id) || 0;
           return aLoad !== bLoad
@@ -572,12 +599,13 @@ function BankImport(): React.ReactElement {
     setMissingMobileCount(0);
     setImportProgress(0);
     setStatusMessage("");
+    setManualExecutiveByArea({});
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   return (
-    <div style={{ padding: 24, background: "#f8fafc", minHeight: "100vh" }}>
-      <div style={{ marginBottom: 20 }}>
+    <div className="bank-import-page" style={{ padding: 24, background: "#f8fafc", minHeight: "100vh" }}>
+      <div className="bank-import-hero" style={{ marginBottom: 20 }}>
         <h2 style={{ margin: 0 }}>🏦 Safe Bank Excel Import</h2>
         <p style={{ color: "#64748b" }}>
           Full NPA list aur short allocation Excel dono supported hain
@@ -587,8 +615,8 @@ function BankImport(): React.ReactElement {
         </small>
       </div>
 
-      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 20, marginBottom: 20 }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "end" }}>
+      <div className="bank-import-upload" style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        <div className="bank-import-controls" style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "end" }}>
           <label>
             Target Bank
             <br />
@@ -626,7 +654,7 @@ function BankImport(): React.ReactElement {
 
       {records.length > 0 && (
         <>
-          <div style={{ background: "#fff", borderRadius: 12, padding: 20, marginBottom: 20 }}>
+          <div className="bank-import-summary" style={{ background: "#fff", borderRadius: 12, padding: 20, marginBottom: 20 }}>
             <p><b>File:</b> {fileName}</p>
             <p><b>Unique Excel Cases:</b> {records.length}</p>
             <p><b>New Cases:</b> {newRecords.length}</p>
@@ -651,10 +679,10 @@ function BankImport(): React.ReactElement {
             </button>
           </div>
 
-          <div style={{ background: "#fff", borderRadius: 12, padding: 20 }}>
+          <div className="bank-import-table-card" style={{ background: "#fff", borderRadius: 12, padding: 20 }}>
             <h3>Market-wise Assignment Preview</h3>
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <table className="bank-import-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
                     <th>Market / Area</th>
@@ -662,6 +690,7 @@ function BankImport(): React.ReactElement {
                     <th>New Cases</th>
                     <th>Already Assigned</th>
                     <th>Active Executives</th>
+                    <th>Direct Executive</th>
                     <th>Import Result</th>
                   </tr>
                 </thead>
@@ -680,9 +709,31 @@ function BankImport(): React.ReactElement {
                           : "No Active Executive"}
                       </td>
                       <td>
+                        <select
+                          value={manualExecutiveByArea[assignmentAreaKey(summary.area)] || ""}
+                          onChange={(event) =>
+                            setManualExecutiveByArea((current) => ({
+                              ...current,
+                              [assignmentAreaKey(summary.area)]: event.target.value,
+                            }))
+                          }
+                          disabled={isImporting || summary.newCases === 0}
+                          className="bank-import-executive-select"
+                          style={{ minWidth: 190, padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1" }}
+                        >
+                          <option value="">Auto / Unassigned</option>
+                          {executives.map((executive) => (
+                            <option key={executive.id} value={executive.id}>
+                              {formatExecutive(executive)} ({executive.area || "No area"})
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
                         {summary.newCases === 0
                           ? "No new case"
-                          : summary.executives.length > 0
+                          : summary.executives.length > 0 ||
+                            Boolean(manualExecutiveByArea[assignmentAreaKey(summary.area)])
                             ? `✅ ${summary.newCases} assigned`
                             : `⚠️ ${summary.newCases} unassigned`}
                       </td>

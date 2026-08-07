@@ -67,6 +67,23 @@ const ALPHA_AREA_MAP: Record<string, string> = {
   DBMSUR: "MEN DB Mandsaur",
 };
 
+// ACCOUNT ALLOTMENT files do not contain Alpha/SOL/Branch columns.
+// Their account number starts with the source-bank SOL ID, so resolve the
+// bank market from that trusted identifier instead of the customer address.
+const ACCOUNT_SOL_AREA_MAP: Record<string, string> = {
+  "0575": "Bamaniya",
+  "575": "Bamaniya",
+  "2494": "Mandsaur",
+  "2653": "Neemuch",
+  "4449": "Sailana",
+  "4134": "Manasa",
+  "1528": "Bilpank",
+  "4467": "Manavar",
+  "3896": "Jaora",
+  "6478": "CRPF Neemuch",
+  "8790": "MEN DB Mandsaur",
+};
+
 const ADDRESS_AREA_RULES: Array<{
   area: string;
   keywords: string[];
@@ -181,13 +198,6 @@ const ADDRESS_AREA_RULES: Array<{
     keywords: ["JAORA"],
   },
   {
-    area: "Dhar",
-    keywords: [
-      "DHAAR",
-      "DHAR",
-    ],
-  },
-  {
     area: "Manavar",
     keywords: [
       "MANAWAR",
@@ -198,13 +208,6 @@ const ADDRESS_AREA_RULES: Array<{
   {
     area: "Tonki",
     keywords: ["TONKI"],
-  },
-  {
-    area: "Petlawad",
-    keywords: [
-      "PETLAWAD",
-      "PETLAWADA",
-    ],
   },
 ];
 
@@ -295,7 +298,8 @@ export function parseBankAmount(
 export function resolveCaseArea(
   alpha: string,
   branchName: string,
-  address: string
+  address: string,
+  accountNumber = ""
 ) {
   const normalizedBranch = normalizeText(branchName);
 
@@ -320,7 +324,19 @@ export function resolveCaseArea(
     return ALPHA_AREA_MAP[normalizedAlpha];
   }
 
-  // 3) Address is used only when branch and Alpha do not resolve an area.
+  // 3) Account/SOL prefix is authoritative for short allocation files.
+  const normalizedAccount = String(accountNumber ?? "").replace(/\D/g, "");
+  const matchingSol = Object.keys(ACCOUNT_SOL_AREA_MAP)
+    .sort((left, right) => right.length - left.length)
+    .find((sol) => normalizedAccount.startsWith(sol));
+
+  if (matchingSol) {
+    return ACCOUNT_SOL_AREA_MAP[matchingSol];
+  }
+
+  // 4) Address is only the last fallback. It must never create Petlawad or
+  // Dhar markets, because those are customer locations rather than the
+  // bank's assignment market.
   const normalizedAddress = normalizeText(address);
 
   for (const rule of ADDRESS_AREA_RULES) {
@@ -480,7 +496,8 @@ function parseRow(
     resolveCaseArea(
       alpha,
       branchName,
-      address
+      address,
+      accountNo
     );
 
   return {

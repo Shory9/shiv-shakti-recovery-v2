@@ -513,7 +513,7 @@ function CasesPage() {
                   <td>{item.bank}</td><td>{item.area}</td><td>{item.executive}</td>
                   <td><span className="case-money">₹{item.amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</span></td>
                   <td><span className={`case-status ${item.status.toLowerCase()}`}>{item.status}</span></td>
-                  <td><div className="case-actions"><button className="case-action-btn primary" onClick={() => setViewCase(item)}>View</button><button className="case-action-btn" onClick={() => openEdit(item)}>Edit</button><button className="case-action-btn primary" disabled={visitLoadingId === item.id} onClick={() => void openVisitProof(item)}>{visitLoadingId === item.id ? "Opening..." : "Visit Proof"}</button></div></td>
+                  <td><div className="case-actions"><button className="case-action-btn primary" onClick={() => setViewCase(item)}>View</button><button className="case-action-btn" onClick={() => openEdit(item)}>Edit</button><button className="case-action-btn primary" onClick={() => openEdit(item)}>Assign</button><button className="case-action-btn primary" disabled={visitLoadingId === item.id} onClick={() => void openVisitProof(item)}>{visitLoadingId === item.id ? "Opening..." : "Visit Proof"}</button></div></td>
                 </tr>
               )) : <tr><td colSpan={8}><div className="cases-empty">No matching cases found.</div></td></tr>}
             </tbody>

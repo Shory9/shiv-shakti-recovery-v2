@@ -1,0 +1,151 @@
+.bank-import-page {
+  min-height: 100vh;
+  padding: 28px !important;
+  color: #172033;
+  background: linear-gradient(145deg, #f8fafc 0%, #fff7fb 50%, #f3f6ff 100%) !important;
+}
+
+.bank-import-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 30px 34px;
+  border-radius: 24px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 88% 10%, rgba(244, 114, 182, .4), transparent 28%),
+    linear-gradient(120deg, #111b45, #48226d 58%, #8f245f);
+  box-shadow: 0 24px 55px rgba(47, 26, 88, .2);
+}
+
+.bank-import-hero::after {
+  content: "";
+  position: absolute;
+  right: -80px;
+  bottom: -170px;
+  width: 270px;
+  height: 270px;
+  border: 1px solid rgba(255, 255, 255, .15);
+  border-radius: 50%;
+}
+
+.bank-import-hero h2 { margin: 0 0 8px !important; font-size: 32px; line-height: 1.1; }
+.bank-import-hero p { margin: 0 0 6px; color: #dbeafe !important; }
+.bank-import-hero small { color: #fbcfe8 !important; }
+
+.bank-import-upload,
+.bank-import-summary,
+.bank-import-table-card {
+  border: 1px solid rgba(203, 213, 225, .75) !important;
+  border-radius: 20px !important;
+  background: rgba(255, 255, 255, .95) !important;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, .07);
+}
+
+.bank-import-controls label { display: grid; gap: 7px; color: #475569; font-size: 12px; font-weight: 800; }
+.bank-import-controls select,
+.bank-import-controls input {
+  box-sizing: border-box;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid #d7deea;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #172033;
+}
+
+.bank-import-controls button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid #fecdd3;
+  border-radius: 12px;
+  background: #fff1f2;
+  color: #be123c;
+  font-weight: 800;
+}
+
+.bank-import-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.bank-import-summary p {
+  position: relative;
+  overflow: hidden;
+  min-height: 68px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 13px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #f8fafc, #fff);
+  color: #64748b;
+  font-size: 12px;
+}
+
+.bank-import-summary p:first-child { grid-column: 1 / -1; min-height: auto; background: #f5f3ff; border-color: #ddd6fe; }
+.bank-import-summary p b { display: block; margin-bottom: 5px; color: #172033; font-size: 13px; }
+.bank-import-summary p:not(:first-child) { font-size: 20px; font-weight: 900; color: #172033; }
+.bank-import-summary p:not(:first-child) b { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+
+.bank-import-summary > button {
+  grid-column: 1 / -1;
+  min-height: 48px;
+  border: 0;
+  border-radius: 13px;
+  color: #fff;
+  font-weight: 900;
+  background: linear-gradient(90deg, #7c3aed, #db2777);
+  box-shadow: 0 10px 22px rgba(124, 58, 237, .2);
+}
+
+.bank-import-summary > button:disabled { opacity: .48; box-shadow: none; }
+.bank-import-table-card h3 { margin: 0 0 16px; font-size: 22px; }
+
+.bank-import-table {
+  min-width: 1020px;
+  border: 1px solid #e2e8f0;
+  border-radius: 15px;
+  overflow: hidden;
+}
+
+.bank-import-table th {
+  padding: 12px 14px;
+  text-align: left;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.bank-import-table td {
+  padding: 12px 14px;
+  border-top: 1px solid #edf2f7;
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.bank-import-table tbody tr:hover { background: #faf5ff; }
+.bank-import-table td:first-child { font-weight: 900; color: #25304b; }
+.bank-import-table td:last-child { font-weight: 800; }
+
+.bank-import-executive-select {
+  width: 100%;
+  min-width: 210px !important;
+  background: #fff !important;
+  color: #334155;
+}
+
+@media (max-width: 980px) {
+  .bank-import-summary { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+  .bank-import-summary p:first-child { grid-column: 1 / -1; }
+}
+
+@media (max-width: 640px) {
+  .bank-import-page { padding: 14px !important; }
+  .bank-import-hero { padding: 24px 20px; }
+  .bank-import-hero h2 { font-size: 27px; }
+  .bank-import-controls { display: grid !important; grid-template-columns: 1fr; }
+  .bank-import-summary { grid-template-columns: 1fr 1fr; }
+}
