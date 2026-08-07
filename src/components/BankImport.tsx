@@ -59,13 +59,10 @@ type MarketSummary = {
   executives: Executive[];
 };
 
-const EXPECTED_HEADERS = [
-  "SN", "TYPE", "Alpha", "SOL ID", "Branch", "Cust ID",
-  "A/C No", "A/C Name", "Sanction Limit", "Sanction Date",
-  "Scheme Code", "REV SEG", "Balance [INR]", "Cust. Bal",
-  "ECGC Rece", "Class", "NPA Date", "TWO", "Fraud",
-  "Total Provision", "ADDRESS", "MOBILE NO",
-] as const;
+// Allocation files supplied by the bank can be either the complete 22-column
+// NPA export or a smaller allocation sheet. Only these two fields are needed
+// to create a valid case; every other supported field is imported when present.
+const REQUIRED_HEADERS = ["A/C No", "A/C Name"] as const;
 
 const normalizeHeader = (value: unknown): string =>
   String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -264,12 +261,12 @@ function BankImport(): React.ReactElement {
       if (rows.length === 0) throw new Error("Excel file khali hai.");
 
       const actualHeaders = Object.keys(rows[0]).map(normalizeHeader);
-      const missingHeaders = EXPECTED_HEADERS.filter(
+      const missingRequiredHeaders = REQUIRED_HEADERS.filter(
         (header) => !actualHeaders.includes(normalizeHeader(header))
       );
 
-      if (missingHeaders.length > 0) {
-        throw new Error(`Ye columns nahi mili: ${missingHeaders.join(", ")}`);
+      if (missingRequiredHeaders.length > 0) {
+        throw new Error(`Ye zaroori columns nahi mili: ${missingRequiredHeaders.join(", ")}`);
       }
 
       const uniqueCases = new Map<string, ImportCase>();
@@ -583,8 +580,11 @@ function BankImport(): React.ReactElement {
       <div style={{ marginBottom: 20 }}>
         <h2 style={{ margin: 0 }}>🏦 Safe Bank Excel Import</h2>
         <p style={{ color: "#64748b" }}>
-          22-column import + market-wise balanced executive assignment
+          Full NPA list aur short allocation Excel dono supported hain
         </p>
+        <small style={{ color: "#64748b" }}>
+          Zaroori columns: A/C No aur A/C Name. Baaki details available hone par import hongi.
+        </small>
       </div>
 
       <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 20, marginBottom: 20 }}>
