@@ -239,6 +239,7 @@ export default function MobileExecutiveApp() {
   const [executive, setExecutive] = useState<ExecutiveRow | null>(null);
   const [cases, setCases] = useState<CaseRow[]>([]);
   const [selectedCase, setSelectedCase] = useState<CaseRow | null>(null);
+  const [caseSearch, setCaseSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -707,6 +708,7 @@ export default function MobileExecutiveApp() {
     setExecutive(null);
     setCases([]);
     setSelectedCase(null);
+    setCaseSearch("");
     setScreen("login");
     setMessage("");
     setLoginCode("");
@@ -734,6 +736,22 @@ export default function MobileExecutiveApp() {
   );
 
   const completedCount = cases.length - pendingCount;
+
+  const filteredCases = useMemo(() => {
+    const query = cleanText(caseSearch).toLowerCase();
+    if (!query) return cases;
+
+    return cases.filter((item) =>
+      [
+        customerName(item),
+        caseNumber(item),
+        cleanText(item.mobile_number),
+        cleanText(item.address),
+        caseArea(item),
+        cleanText(item.bank_name),
+      ].some((value) => value.toLowerCase().includes(query))
+    );
+  }, [cases, caseSearch]);
 
   return (
     <main style={styles.page}>
@@ -921,13 +939,47 @@ export default function MobileExecutiveApp() {
               </button>
             </div>
 
+            <div style={styles.caseSearchWrap}>
+              <span style={styles.caseSearchIcon} aria-hidden="true">
+                🔎
+              </span>
+              <input
+                type="search"
+                value={caseSearch}
+                onChange={(event) => setCaseSearch(event.target.value)}
+                placeholder="Customer, account no. ya mobile search karein"
+                aria-label="Assigned cases search"
+                style={styles.caseSearchInput}
+              />
+              {caseSearch && (
+                <button
+                  type="button"
+                  onClick={() => setCaseSearch("")}
+                  aria-label="Search clear karein"
+                  style={styles.caseSearchClear}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {caseSearch && cases.length > 0 && (
+              <div style={styles.caseSearchResult}>
+                {filteredCases.length} case mile
+              </div>
+            )}
+
             {loading && cases.length === 0 ? (
               <div style={styles.empty}>Cases load ho rahe hain...</div>
             ) : cases.length === 0 ? (
               <div style={styles.empty}>Abhi koi case assigned nahi hai.</div>
+            ) : filteredCases.length === 0 ? (
+              <div style={styles.empty}>
+                Is search se koi assigned case nahi mila.
+              </div>
             ) : (
               <section style={styles.caseList}>
-                {cases.map((item) => (
+                {filteredCases.map((item) => (
                   <article style={styles.caseCard} key={item.id}>
                     <button
                       type="button"
@@ -1387,6 +1439,46 @@ const styles: Record<string, CSSProperties> = {
     background: "#fee2e2",
     color: "#b91c1c",
     fontWeight: 800,
+  },
+  caseSearchWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "4px 10px",
+    marginBottom: 8,
+    border: "1px solid #fecaca",
+    borderRadius: 14,
+    background: "#fff",
+    boxShadow: "0 8px 24px rgba(127,29,29,.06)",
+  },
+  caseSearchIcon: { fontSize: 17, flexShrink: 0 },
+  caseSearchInput: {
+    width: "100%",
+    minWidth: 0,
+    padding: "11px 2px",
+    border: 0,
+    outline: "none",
+    background: "transparent",
+    color: "#291414",
+    fontSize: 14,
+  },
+  caseSearchClear: {
+    width: 32,
+    height: 32,
+    flexShrink: 0,
+    border: 0,
+    borderRadius: 999,
+    background: "#fee2e2",
+    color: "#991b1b",
+    fontSize: 21,
+    lineHeight: 1,
+    cursor: "pointer",
+  },
+  caseSearchResult: {
+    margin: "0 2px 10px",
+    color: "#7f1d1d",
+    fontSize: 12,
+    fontWeight: 700,
   },
   empty: {
     padding: 30,
