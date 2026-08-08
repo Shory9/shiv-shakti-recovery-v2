@@ -748,6 +748,22 @@ export default function MobileExecutiveApp() {
           </div>
         </header>
 
+        <style>{`
+          @keyframes executiveNoticeScroll {
+            from { transform: translateX(100%); }
+            to { transform: translateX(-100%); }
+          }
+        `}</style>
+        <div
+          style={styles.attendanceNotice}
+          role="status"
+          aria-label="Daily check-in notice"
+        >
+          <div style={styles.attendanceNoticeText}>
+            📢 सभी Executive रोज सुबह ठीक 10:00 बजे Check-in करेंगे। Check-in नहीं करने पर उस दिन की छुट्टी मानी जाएगी।
+          </div>
+        </div>
+
         {message && <div style={styles.message}>{message}</div>}
 
         {screen === "login" && (
@@ -1445,6 +1461,25 @@ const styles: Record<string, CSSProperties> = {
     opacity: 0.75,
     textTransform: "uppercase",
     letterSpacing: ".08em",
+  },
+  attendanceNotice: {
+    width: "100%",
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    padding: "10px 0",
+    borderTop: "1px solid #fbbf24",
+    borderBottom: "1px solid #f59e0b",
+    background: "linear-gradient(90deg, #fff7ed, #fef3c7, #fff7ed)",
+    color: "#9a3412",
+    boxShadow: "0 5px 16px rgba(146,64,14,.12)",
+  },
+  attendanceNoticeText: {
+    display: "inline-block",
+    minWidth: "100%",
+    paddingLeft: "100%",
+    fontSize: 13,
+    fontWeight: 800,
+    animation: "executiveNoticeScroll 18s linear infinite",
   },
   detailTitle: { margin: "7px 0 3px", fontSize: 25 },
   detailSubtitle: { fontSize: 12, opacity: 0.78 },
