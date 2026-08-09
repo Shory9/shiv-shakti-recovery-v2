@@ -21,6 +21,11 @@ type OperationRow = {
   status?: string | null;
 };
 
+type VisitRow = {
+  id: number | string;
+  captured_at?: string | null;
+};
+
 type Tone = "blue" | "amber" | "green" | "purple";
 
 type StatCard = {
@@ -78,6 +83,7 @@ function StatsCards() {
   const [cases, setCases] = useState<CaseRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [operations, setOperations] = useState<OperationRow[]>([]);
+  const [visits, setVisits] = useState<VisitRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -109,15 +115,17 @@ function StatsCards() {
     setError("");
 
     try {
-      const [caseRows, paymentRows, operationRows] = await Promise.all([
+      const [caseRows, paymentRows, operationRows, visitRows] = await Promise.all([
         fetchAllRows<CaseRow>("cases"),
         fetchAllRows<PaymentRow>("payments"),
         fetchAllRows<OperationRow>("case_operations"),
+        fetchAllRows<VisitRow>("case_visits"),
       ]);
 
       setCases(caseRows);
       setPayments(paymentRows);
       setOperations(operationRows);
+      setVisits(visitRows);
     } catch (caughtError) {
       const message =
         caughtError instanceof Error
@@ -151,6 +159,11 @@ function StatsCards() {
         { event: "*", schema: "public", table: "case_operations" },
         () => void loadStats()
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "case_visits" },
+        () => void loadStats()
+      )
       .subscribe();
 
     return () => {
@@ -171,7 +184,12 @@ function StatsCards() {
       String(today.getDate()).padStart(2, "0"),
     ].join("-");
 
-    const visitedToday = operations.filter((operation) => {
+    const liveVisitedToday = visits.filter((visit) => {
+      const visitDate = visit.captured_at || "";
+      return Boolean(visitDate) && visitDate.slice(0, 10) === todayKey;
+    }).length;
+
+    const legacyVisitedToday = operations.filter((operation) => {
       const operationDate = getOperationDate(operation);
 
       return (
@@ -180,6 +198,8 @@ function StatsCards() {
         isVisitOperation(operation)
       );
     }).length;
+
+    const visitedToday = liveVisitedToday || legacyVisitedToday;
 
     const totalRecovery = payments.reduce(
       (sum, payment) => sum + (Number(payment.amount) || 0),
@@ -223,7 +243,7 @@ function StatsCards() {
         tone: "purple",
       },
     ];
-  }, [cases, payments, operations]);
+  }, [cases, payments, operations, visits]);
 
   return (
     <section className="stats-cards-grid">
