@@ -668,7 +668,7 @@ export default function MobileExecutiveApp() {
       if (!data) throw new Error("Visit record database mein save nahi hua.");
 
       if (hasPayment) {
-        const { data: paymentId, error: paymentError } = await supabase.rpc("mobile_record_payment", {
+        const { error: paymentError } = await supabase.rpc("mobile_record_payment", {
           p_case_id: visitCase.id,
           p_executive_id: String(executive.id),
           p_executive_code: executiveCode(executive),
@@ -681,9 +681,6 @@ export default function MobileExecutiveApp() {
           p_payment_date: new Date().toISOString().slice(0, 10),
         });
         if (paymentError) throw paymentError;
-        if (!paymentId) {
-          throw new Error("Payment database mein save nahi hua. Dobara try karein.");
-        }
         setPaymentAmount("");
         await loadPayments(executive);
       }
@@ -758,8 +755,8 @@ export default function MobileExecutiveApp() {
       [
         customerName(item),
         caseNumber(item),
-        cleanText(item.mobile_number),
-        cleanText(item.address),
+        Call: {cleanText(item.mobile_number)}
+        Address: {cleanText(item.address)}
         caseArea(item),
         cleanText(item.bank_name),
       ].some((value) => value.toLowerCase().includes(query))
@@ -954,7 +951,7 @@ export default function MobileExecutiveApp() {
 
             <div style={styles.caseSearchWrap}>
               <span style={styles.caseSearchIcon} aria-hidden="true">
-                Search
+                ðŸ”Ž
               </span>
               <input
                 type="search"
@@ -970,8 +967,8 @@ export default function MobileExecutiveApp() {
                   onClick={() => setCaseSearch("")}
                   aria-label="Search clear karein"
                   style={styles.caseSearchClear}
-                >X
-
+                >
+                  Ã—
                 </button>
               )}
             </div>
@@ -1080,7 +1077,7 @@ export default function MobileExecutiveApp() {
                           Case: {linkedCase ? caseNumber(linkedCase) : payment.case_id}
                         </span>
                         <span>
-                          Amount: INR {toNumber(payment.amount).toLocaleString("en-IN")}
+                          Amount: â‚¹{toNumber(payment.amount).toLocaleString("en-IN")}
                         </span>
                         <span>Mode: {cleanText(payment.payment_mode) || "-"}</span>
                         <span>
@@ -1131,7 +1128,7 @@ export default function MobileExecutiveApp() {
                 setScreen("dashboard");
               }}
             >
-              Back to Cases
+              â† Back to Cases
             </button>
 
             <section style={styles.detailHero}>
@@ -1665,3 +1662,4 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
 };
+

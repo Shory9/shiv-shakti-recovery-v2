@@ -668,7 +668,7 @@ export default function MobileExecutiveApp() {
       if (!data) throw new Error("Visit record database mein save nahi hua.");
 
       if (hasPayment) {
-        const { data: paymentId, error: paymentError } = await supabase.rpc("mobile_record_payment", {
+        const { error: paymentError } = await supabase.rpc("mobile_record_payment", {
           p_case_id: visitCase.id,
           p_executive_id: String(executive.id),
           p_executive_code: executiveCode(executive),
@@ -681,9 +681,6 @@ export default function MobileExecutiveApp() {
           p_payment_date: new Date().toISOString().slice(0, 10),
         });
         if (paymentError) throw paymentError;
-        if (!paymentId) {
-          throw new Error("Payment database mein save nahi hua. Dobara try karein.");
-        }
         setPaymentAmount("");
         await loadPayments(executive);
       }
@@ -791,7 +788,7 @@ export default function MobileExecutiveApp() {
           aria-label="Daily check-in notice"
         >
           <div style={styles.attendanceNoticeText}>
-            IMPORTANT: Sabhi executives roz subah 10:00 baje tak Check-in karein. Check-in na hone par us din absent maana jayega.
+            ðŸ“¢ à¤¸à¤­à¥€ Executive à¤°à¥‹à¤œ à¤¸à¥à¤¬à¤¹ à¤ à¥€à¤• 10:00 à¤¬à¤œà¥‡ Check-in à¤•à¤°à¥‡à¤‚à¤—à¥‡à¥¤ Check-in à¤¨à¤¹à¥€à¤‚ à¤•à¤°à¤¨à¥‡ à¤ªà¤° à¤‰à¤¸ à¤¦à¤¿à¤¨ à¤•à¥€ à¤›à¥à¤Ÿà¥à¤Ÿà¥€ à¤®à¤¾à¤¨à¥€ à¤œà¤¾à¤à¤—à¥€à¥¤
           </div>
         </div>
 
@@ -883,7 +880,7 @@ export default function MobileExecutiveApp() {
 
         {screen === "pending" && executive && (
           <section style={styles.card}>
-            <div style={{ textAlign: "center", padding: 40, fontSize: 20 }}>Loading...</div>
+            <div style={{ fontSize: 54, textAlign: "center" }}>â³</div>
             <h1 style={{ ...styles.title, textAlign: "center" }}>
               Approval Pending
             </h1>
@@ -918,7 +915,7 @@ export default function MobileExecutiveApp() {
                   {executiveName(executive)}
                 </h1>
                 <div>
-                  {executiveCode(executive)} {" | "} {cleanText(executive.area)}
+                  {executiveCode(executive)} Â· {cleanText(executive.area)}
                 </div>
               </div>
               <button style={styles.logoutButton} onClick={logout}>
@@ -954,7 +951,7 @@ export default function MobileExecutiveApp() {
 
             <div style={styles.caseSearchWrap}>
               <span style={styles.caseSearchIcon} aria-hidden="true">
-                Search
+                ðŸ”Ž
               </span>
               <input
                 type="search"
@@ -970,8 +967,8 @@ export default function MobileExecutiveApp() {
                   onClick={() => setCaseSearch("")}
                   aria-label="Search clear karein"
                   style={styles.caseSearchClear}
-                >X
-
+                >
+                  Ã—
                 </button>
               )}
             </div>
@@ -1015,14 +1012,14 @@ export default function MobileExecutiveApp() {
                       </div>
                       <div style={styles.caseDetails}>
                         <div>
-                          Call: {cleanText(item.mobile_number)}
+                          ðŸ“ž {cleanText(item.mobile_number) || "No mobile"}
                         </div>
                         <div>
-                          Address: {cleanText(item.address)}
+                          ðŸ“ {cleanText(item.address) || caseArea(item)}
                         </div>
                       </div>
                       <div style={styles.viewDetailsText}>
-                        Case details dekhein &gt;
+                        Case details dekhein â†’
                       </div>
                     </button>
                   </article>
@@ -1080,7 +1077,7 @@ export default function MobileExecutiveApp() {
                           Case: {linkedCase ? caseNumber(linkedCase) : payment.case_id}
                         </span>
                         <span>
-                          Amount: INR {toNumber(payment.amount).toLocaleString("en-IN")}
+                          Amount: â‚¹{toNumber(payment.amount).toLocaleString("en-IN")}
                         </span>
                         <span>Mode: {cleanText(payment.payment_mode) || "-"}</span>
                         <span>
@@ -1131,7 +1128,7 @@ export default function MobileExecutiveApp() {
                 setScreen("dashboard");
               }}
             >
-              Back to Cases
+              â† Back to Cases
             </button>
 
             <section style={styles.detailHero}>
@@ -1234,7 +1231,7 @@ export default function MobileExecutiveApp() {
               {(visitOutcome === "Settlement" || visitOutcome === "Palti Ki Gayi") && (
                 <div style={{ display: "grid", gap: 10, padding: 12, borderRadius: 12, background: "#ecfdf5", border: "1px solid #86efac" }}>
                   <b>{visitOutcome} Details</b>
-                  placeholder={`${visitOutcome} amount INR`}
+                  <input value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} inputMode="decimal" placeholder={`${visitOutcome} amount â‚¹`} style={styles.input} />
                 </div>
               )}
             </section>
@@ -1245,7 +1242,7 @@ export default function MobileExecutiveApp() {
                 style={styles.callButton}
                 onClick={() => callCustomer(selectedCase)}
               >
-                Call Customer
+                ðŸ“ž Call Customer
               </button>
               <button
                 type="button"
@@ -1281,7 +1278,7 @@ export default function MobileExecutiveApp() {
                 }}
                 onClick={() => setScreen("dashboard")}
               >
-                <span>Cases</span>
+                ðŸ“ <span>Cases</span>
               </button>
               <button
                 style={{
@@ -1290,7 +1287,7 @@ export default function MobileExecutiveApp() {
                 }}
                 onClick={() => setScreen("gps")}
               >
-                <span>GPS Live</span>
+                ðŸ“ <span>GPS Live</span>
               </button>
               <button
                 style={{
@@ -1302,7 +1299,7 @@ export default function MobileExecutiveApp() {
                   void loadPayments();
                 }}
               >
-                <span>Payments</span>
+                ðŸ’³ <span>Payments</span>
               </button>
               <button
                 style={{
@@ -1311,7 +1308,7 @@ export default function MobileExecutiveApp() {
                 }}
                 onClick={() => setScreen("profile")}
               >
-                <span>Profile</span>
+                ðŸ‘¤ <span>Profile</span>
               </button>
             </nav>
           )}
@@ -1578,7 +1575,7 @@ const styles: Record<string, CSSProperties> = {
     paddingLeft: "100%",
     fontSize: 13,
     fontWeight: 800,
-    animation: "executiveNoticeScroll 36s linear infinite",
+    animation: "executiveNoticeScroll 18s linear infinite",
   },
   detailTitle: { margin: "7px 0 3px", fontSize: 25 },
   detailSubtitle: { fontSize: 12, opacity: 0.78 },
@@ -1665,3 +1662,4 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
 };
+
