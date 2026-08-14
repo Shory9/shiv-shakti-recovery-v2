@@ -592,7 +592,9 @@ export default function MobileExecutiveApp() {
     }
 
     const hasPayment =
-      visitOutcome === "Settlement" || visitOutcome === "Palti Ki Gayi";
+      visitOutcome === "Payment Collected" ||
+      visitOutcome === "Settlement" ||
+      visitOutcome === "Palti Ki Gayi";
     const amount = toNumber(paymentAmount);
     if (
       hasPayment &&
@@ -1227,13 +1229,13 @@ export default function MobileExecutiveApp() {
             <section style={{ ...styles.remarksBox, display: "grid", gap: 10 }}>
               <span>Visit Report (photo se pehle bharein)</span>
               <select value={visitOutcome} onChange={(event) => setVisitOutcome(event.target.value)} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca", background: "white" }}>
-                <option>Customer Met</option><option>Customer Not Available</option><option>House Locked</option><option>Payment Promise</option><option>Settlement</option><option>Palti Ki Gayi</option><option>Refused Payment</option><option>Wrong Address</option><option>Other</option>
+                <option>Customer Met</option><option>Customer Not Available</option><option>House Locked</option><option>Payment Promise</option><option>Payment Collected</option><option>Settlement</option><option>Palti Ki Gayi</option><option>Refused Payment</option><option>Wrong Address</option><option>Other</option>
               </select>
               <textarea value={visitRemarks} onChange={(event) => setVisitRemarks(event.target.value)} placeholder="Visit me kya hua? Mandatory remark..." rows={3} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca", resize: "vertical" }} />
               <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 800 }}>Next Follow-up (optional)<input type="date" value={visitFollowUp} onChange={(event) => setVisitFollowUp(event.target.value)} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca" }} /></label>
             </section>
 
-            {(visitOutcome === "Settlement" || visitOutcome === "Palti Ki Gayi") && (
+            {(visitOutcome === "Payment Collected" || visitOutcome === "Settlement" || visitOutcome === "Palti Ki Gayi") && (
               <section style={{ ...styles.card, display: "grid", gap: 10, border: "2px solid #22c55e", background: "#ecfdf5" }}>
                 <b style={{ fontSize: 18 }}>Payment / Collection</b>
                 <span style={{ fontSize: 13 }}>{visitOutcome} ki payment amount alag se bharein</span>
