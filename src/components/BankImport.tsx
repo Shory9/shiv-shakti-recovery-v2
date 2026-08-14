@@ -149,7 +149,13 @@ function assignmentAreaKey(value: unknown): string {
   return aliases[normalized] || normalized;
 }
 
-function BankImport(): React.ReactElement {
+type BankImportProps = {
+  directExecutiveId?: string | null;
+  directExecutiveName?: string | null;
+  onClearDirectExecutive?: () => void;
+};
+
+function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecutive }: BankImportProps): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedBank, setSelectedBank] = useState("Bank of Baroda (BOB)");
@@ -455,6 +461,8 @@ function BankImport(): React.ReactElement {
         );
 
         const selectedExecutive = executives.find(
+          (executive) => executive.id === directExecutiveId
+        ) ?? executives.find(
           (executive) => executive.id === manualExecutiveId
         ) ?? [...matchingExecutives].sort((a, b) => {
           const aLoad = workload.get(a.id) || 0;
@@ -616,6 +624,12 @@ function BankImport(): React.ReactElement {
       </div>
 
       <div className="bank-import-upload" style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        {directExecutiveId && (
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", padding: "12px 14px", marginBottom: 16, borderRadius: 10, background: "#eff6ff", border: "1px solid #93c5fd", color: "#1e3a8a" }}>
+            <strong>Direct assignment: {directExecutiveName || "Selected executive"}</strong>
+            <button type="button" onClick={onClearDirectExecutive}>Change</button>
+          </div>
+        )}
         <div className="bank-import-controls" style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "end" }}>
           <label>
             Target Bank
@@ -717,11 +731,11 @@ function BankImport(): React.ReactElement {
                               [assignmentAreaKey(summary.area)]: event.target.value,
                             }))
                           }
-                          disabled={isImporting || summary.newCases === 0}
+                          disabled={isImporting || summary.newCases === 0 || Boolean(directExecutiveId)}
                           className="bank-import-executive-select"
                           style={{ minWidth: 190, padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1" }}
                         >
-                          <option value="">Auto / Unassigned</option>
+                          <option value="">{directExecutiveId ? `Direct: ${directExecutiveName || "Selected executive"}` : "Auto / Unassigned"}</option>
                           {executives.map((executive) => (
                             <option key={executive.id} value={executive.id}>
                               {formatExecutive(executive)} ({executive.area || "No area"})

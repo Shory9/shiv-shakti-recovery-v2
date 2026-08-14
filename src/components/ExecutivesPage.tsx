@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 
-type Executive = {
+export type Executive = {
   id: number | string;
   executive_code: string;
   full_name: string;
@@ -25,7 +25,11 @@ const PREDEFINED_AREAS = [
   "Custom Area (Type manually)",
 ];
 
-export default function ExecutivesPage(): React.ReactElement {
+type ExecutivesPageProps = {
+  onDirectImport?: (executive: Executive) => void;
+};
+
+export default function ExecutivesPage({ onDirectImport }: ExecutivesPageProps): React.ReactElement {
   const [executives, setExecutives] = useState<Executive[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -282,6 +286,9 @@ export default function ExecutivesPage(): React.ReactElement {
                       <td style={{ padding: "8px 10px" }}><span style={statusStyle(ex.status)}>{ex.status}</span></td>
                       <td style={{ padding: "8px 10px", textAlign: "right" }}>
                         <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: "6px" }}>
+                          <button type="button" disabled={isWorking || isPending} onClick={() => onDirectImport?.(ex)} style={{ padding: "5px 10px", backgroundColor: "#2563eb", color: "#ffffff", border: "none", borderRadius: "5px", fontWeight: "700", fontSize: "12px", cursor: isWorking || isPending ? "not-allowed" : "pointer", opacity: isWorking || isPending ? 0.55 : 1 }}>
+                            Upload Bank File
+                          </button>
                           {isPending && (
                             <button type="button" disabled={isWorking} onClick={() => void handleApproveExecutive(ex)} style={{ padding: "5px 10px", backgroundColor: "#16a34a", color: "#ffffff", border: "none", borderRadius: "5px", fontWeight: "700", fontSize: "12px", cursor: isWorking ? "not-allowed" : "pointer", opacity: isWorking ? 0.65 : 1 }}>
                               {isWorking ? "Wait..." : "Approve"}

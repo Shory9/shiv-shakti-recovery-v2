@@ -7,6 +7,7 @@ import CasesPage from "./components/CasesPage";
 import DashboardPage from "./components/DashboardPage";
 import ExecutiveAppPage from "./components/ExecutiveAppPage";
 import ExecutivesPage from "./components/ExecutivesPage";
+import type { Executive } from "./components/ExecutivesPage";
 import FieldVisitsPage from "./components/FieldVisitsPage";
 import GPSPage from "./components/GPSPage";
 import Header from "./components/Header";
@@ -22,6 +23,7 @@ function App() {
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeMenu, setActiveMenu] = useState<Menu>("Dashboard");
+  const [bankImportExecutive, setBankImportExecutive] = useState<Executive | null>(null);
 
   if (isNativeApp) {
     return <MobileExecutiveApp />;
@@ -38,13 +40,13 @@ function App() {
         return <DashboardPage />;
 
       case "Bank Import":
-        return <BankImport />;
+        return <BankImport directExecutiveId={bankImportExecutive ? String(bankImportExecutive.id) : null} directExecutiveName={bankImportExecutive?.full_name || null} onClearDirectExecutive={() => setBankImportExecutive(null)} />;
 
       case "Cases":
         return <CasesPage />;
 
       case "Executive":
-        return <ExecutivesPage />;
+        return <ExecutivesPage onDirectImport={(executive) => { setBankImportExecutive(executive); setActiveMenu("Bank Import"); }} />;
 
       case "Executive App":
         return <ExecutiveAppPage />;
