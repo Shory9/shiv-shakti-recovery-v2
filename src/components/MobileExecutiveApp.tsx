@@ -1231,13 +1231,25 @@ export default function MobileExecutiveApp() {
               </select>
               <textarea value={visitRemarks} onChange={(event) => setVisitRemarks(event.target.value)} placeholder="Visit me kya hua? Mandatory remark..." rows={3} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca", resize: "vertical" }} />
               <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 800 }}>Next Follow-up (optional)<input type="date" value={visitFollowUp} onChange={(event) => setVisitFollowUp(event.target.value)} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca" }} /></label>
-              {(visitOutcome === "Settlement" || visitOutcome === "Palti Ki Gayi") && (
-                <div style={{ display: "grid", gap: 10, padding: 12, borderRadius: 12, background: "#ecfdf5", border: "1px solid #86efac" }}>
-                  <b>{visitOutcome} Details</b>
-                  placeholder={`${visitOutcome} amount INR`}
-                </div>
-              )}
             </section>
+
+            {(visitOutcome === "Settlement" || visitOutcome === "Palti Ki Gayi") && (
+              <section style={{ ...styles.card, display: "grid", gap: 10, border: "2px solid #22c55e", background: "#ecfdf5" }}>
+                <b style={{ fontSize: 18 }}>Payment / Collection</b>
+                <span style={{ fontSize: 13 }}>{visitOutcome} ki payment amount alag se bharein</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  inputMode="numeric"
+                  value={paymentAmount}
+                  onChange={(event) => setPaymentAmount(event.target.value)}
+                  placeholder="Payment amount INR"
+                  aria-label="Payment amount in INR"
+                  style={{ padding: 14, borderRadius: 10, border: "1px solid #22c55e", background: "white", fontSize: 18 }}
+                />
+              </section>
+            )}
 
             <section style={styles.detailActions}>
               <button
