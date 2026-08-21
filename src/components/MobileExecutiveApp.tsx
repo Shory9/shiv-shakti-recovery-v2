@@ -1,4 +1,4 @@
-﻿import {
+import {
   useEffect,
   useMemo,
   useState,
@@ -262,6 +262,9 @@ export default function MobileExecutiveApp() {
   const [visitFollowUp, setVisitFollowUp] = useState("");
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentCaseId, setPaymentCaseId] = useState("");
+  const [paymentType, setPaymentType] = useState("Settlement");
+  const [paymentRemarks, setPaymentRemarks] = useState("");
 
   useEffect(() => {
     let disposed = false;
@@ -591,20 +594,6 @@ export default function MobileExecutiveApp() {
       return;
     }
 
-    const hasPayment =
-      visitOutcome === "Payment Collected" ||
-      visitOutcome === "Settlement" ||
-      visitOutcome === "Palti Ki Gayi";
-    const amount = toNumber(paymentAmount);
-    if (
-      hasPayment &&
-      amount <= 0
-    ) {
-      setMessage(`${visitOutcome} amount required hai.`);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
-
     setLoading(true);
     setMessage("Camera open ho raha hai...");
 
@@ -669,27 +658,6 @@ export default function MobileExecutiveApp() {
       if (error) throw error;
       if (!data) throw new Error("Visit record database mein save nahi hua.");
 
-      if (hasPayment) {
-        const { data: paymentId, error: paymentError } = await supabase.rpc("mobile_record_payment", {
-          p_case_id: visitCase.id,
-          p_executive_id: String(executive.id),
-          p_executive_code: executiveCode(executive),
-          p_mobile: executivePhone(executive),
-          p_amount: amount,
-          p_payment_mode: visitOutcome,
-          p_reference_number: null,
-          p_receipt_number: null,
-          p_remarks: visitRemarks.trim(),
-          p_payment_date: new Date().toISOString().slice(0, 10),
-        });
-        if (paymentError) throw paymentError;
-        if (!paymentId) {
-          throw new Error("Payment database mein save nahi hua. Dobara try karein.");
-        }
-        setPaymentAmount("");
-        await loadPayments(executive);
-      }
-
       setCurrentCoords(coords);
       setCases((current) =>
         current.map((item) =>
@@ -700,9 +668,7 @@ export default function MobileExecutiveApp() {
         current?.id === visitCase.id ? { ...current, status: "Visited" } : current
       );
       setMessage(
-        hasPayment
-          ? `Visit aur ${visitOutcome} amount GPS photo ke saath save ho gaye.`
-          : "Visit saved: camera photo par GPS stamp lagkar upload ho gayi."
+        "Visit saved: camera photo par GPS stamp lagkar upload ho gayi."
       );
       setVisitRemarks("");
       setVisitFollowUp("");
@@ -711,6 +677,58 @@ export default function MobileExecutiveApp() {
       setMessage(
         `Visit save error: ${errorMessage(error, "Unknown visit error")}`
       );
+    } finally {
+      setLoading(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  async function recordPayment() {
+    if (!executive) {
+      setMessage("Executive session nahi mili.");
+      return;
+    }
+
+    const linkedCase = cases.find((item) => item.id === paymentCaseId);
+    const amount = toNumber(paymentAmount);
+    if (!linkedCase) {
+      setMessage("Payment ke liye customer/case select karo.");
+      return;
+    }
+    if (amount <= 0) {
+      setMessage("Valid payment amount enter karo.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("Payment database mein save ho rahi hai...");
+    try {
+      const { data: paymentId, error } = await supabase.rpc(
+        "mobile_record_payment",
+        {
+          p_case_id: linkedCase.id,
+          p_executive_id: String(executive.id),
+          p_executive_code: executiveCode(executive),
+          p_mobile: executivePhone(executive),
+          p_amount: amount,
+          p_payment_mode: paymentType,
+          p_reference_number: null,
+          p_receipt_number: null,
+          p_remarks: paymentRemarks.trim() || `${paymentType} payment submitted`,
+          p_payment_date: new Date().toISOString().slice(0, 10),
+        }
+      );
+      if (error) throw error;
+      if (!paymentId) throw new Error("Payment database mein save nahi hui.");
+
+      setPaymentAmount("");
+      setPaymentRemarks("");
+      setPaymentCaseId("");
+      await loadPayments(executive);
+      setMessage(`${customerName(linkedCase)} ki ${paymentType} payment save ho gayi.`);
+    } catch (error) {
+      console.error("Payment save error:", error);
+      setMessage(`Payment save error: ${errorMessage(error, "Unknown database error")}`);
     } finally {
       setLoading(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1061,8 +1079,59 @@ export default function MobileExecutiveApp() {
             <section style={styles.card}>
               <h1 style={styles.title}>Payments & Collections</h1>
               <p style={styles.subtext}>
-                Customer ke bank payment aur recovery records.
+                Visit se alag customer payment save karein. Isme GPS/photo nahi lagega.
               </p>
+              <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+                <select
+                  value={paymentCaseId}
+                  onChange={(event) => setPaymentCaseId(event.target.value)}
+                  style={styles.input}
+                >
+                  <option value="">Customer / case select karein</option>
+                  {cases.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {customerName(item)} - {caseNumber(item)}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={paymentType}
+                  onChange={(event) => setPaymentType(event.target.value)}
+                  style={styles.input}
+                >
+                  <option>Settlement</option>
+                  <option>Palti Ki Gayi</option>
+                </select>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  inputMode="numeric"
+                  value={paymentAmount}
+                  onChange={(event) => setPaymentAmount(event.target.value)}
+                  placeholder="Payment amount INR"
+                  style={styles.input}
+                />
+                <textarea
+                  value={paymentRemarks}
+                  onChange={(event) => setPaymentRemarks(event.target.value)}
+                  placeholder="Payment remark (optional)"
+                  rows={2}
+                  style={{ ...styles.input, height: "auto", paddingTop: 12 }}
+                />
+                <button
+                  type="button"
+                  style={styles.doneButton}
+                  disabled={loading}
+                  onClick={() => void recordPayment()}
+                >
+                  {loading ? "Saving Payment..." : "Save Payment"}
+                </button>
+              </div>
+            </section>
+
+            <section style={styles.card}>
+              <h2 style={{ marginTop: 0 }}>Payment History</h2>
               {payments.length === 0 ? (
                 <div style={styles.empty}>Abhi koi payment record nahi hai.</div>
               ) : (
@@ -1227,31 +1296,13 @@ export default function MobileExecutiveApp() {
             )}
 
             <section style={{ ...styles.remarksBox, display: "grid", gap: 10 }}>
-              <span>Visit Report (photo se pehle bharein)</span>
+              <span>Visit Report (GPS photo ke saath)</span>
               <select value={visitOutcome} onChange={(event) => setVisitOutcome(event.target.value)} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca", background: "white" }}>
-                <option>Customer Met</option><option>Customer Not Available</option><option>House Locked</option><option>Payment Promise</option><option>Payment Collected</option><option>Settlement</option><option>Palti Ki Gayi</option><option>Refused Payment</option><option>Wrong Address</option><option>Other</option>
+                <option>Customer Met</option><option>Customer Not Available</option><option>House Locked</option><option>Payment Promise</option><option>Refused Payment</option><option>Wrong Address</option><option>Other</option>
               </select>
-              <textarea value={visitRemarks} onChange={(event) => setVisitRemarks(event.target.value)} placeholder="Visit me kya hua? Mandatory remark..." rows={3} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca", resize: "vertical" }} />
+              <textarea value={visitRemarks} onChange={(event) => setVisitRemarks(event.target.value)} placeholder="Visit remark (required)" rows={3} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca", resize: "vertical" }} />
               <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 800 }}>Next Follow-up (optional)<input type="date" value={visitFollowUp} onChange={(event) => setVisitFollowUp(event.target.value)} style={{ padding: 12, borderRadius: 10, border: "1px solid #fecaca" }} /></label>
             </section>
-
-            {(visitOutcome === "Payment Collected" || visitOutcome === "Settlement" || visitOutcome === "Palti Ki Gayi") && (
-              <section style={{ ...styles.card, display: "grid", gap: 10, border: "2px solid #22c55e", background: "#ecfdf5" }}>
-                <b style={{ fontSize: 18 }}>Payment / Collection</b>
-                <span style={{ fontSize: 13 }}>{visitOutcome} ki payment amount alag se bharein</span>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  inputMode="numeric"
-                  value={paymentAmount}
-                  onChange={(event) => setPaymentAmount(event.target.value)}
-                  placeholder="Payment amount INR"
-                  aria-label="Payment amount in INR"
-                  style={{ padding: 14, borderRadius: 10, border: "1px solid #22c55e", background: "white", fontSize: 18 }}
-                />
-              </section>
-            )}
 
             <section style={styles.detailActions}>
               <button
@@ -1679,3 +1730,5 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
 };
+
+
