@@ -703,11 +703,22 @@ export default function MobileExecutiveApp() {
     setLoading(true);
     setMessage("Payment database mein save ho rahi hai...");
     try {
+      // A case can carry the legacy public.executive id used by the payments
+      // foreign key.  The mobile login record comes from public.executives and
+      // its id is not guaranteed to be the same value.
+      const paymentExecutiveId = cleanText(
+        linkedCase.assigned_executive_id || executive.id
+      );
+
+      if (!paymentExecutiveId) {
+        throw new Error("Case ka assigned executive ID nahi mila.");
+      }
+
       const { data: paymentId, error } = await supabase.rpc(
         "mobile_record_payment",
         {
           p_case_id: linkedCase.id,
-          p_executive_id: String(executive.id),
+          p_executive_id: paymentExecutiveId,
           p_executive_code: executiveCode(executive),
           p_mobile: executivePhone(executive),
           p_amount: amount,
@@ -1730,5 +1741,4 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
 };
-
 
