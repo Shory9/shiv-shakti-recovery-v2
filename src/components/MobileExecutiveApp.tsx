@@ -263,8 +263,18 @@ export default function MobileExecutiveApp() {
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentCaseId, setPaymentCaseId] = useState("");
+  const [paymentCaseSearch, setPaymentCaseSearch] = useState("");
   const [paymentType, setPaymentType] = useState("Settlement");
   const [paymentRemarks, setPaymentRemarks] = useState("");
+
+  const paymentCases = useMemo(() => {
+    const query = cleanText(paymentCaseSearch).toLowerCase();
+    if (!query) return cases;
+
+    return cases.filter((item) =>
+      `${customerName(item)} ${caseNumber(item)}`.toLowerCase().includes(query)
+    );
+  }, [cases, paymentCaseSearch]);
 
   useEffect(() => {
     let disposed = false;
@@ -703,22 +713,28 @@ export default function MobileExecutiveApp() {
     setLoading(true);
     setMessage("Payment database mein save ho rahi hai...");
     try {
-      // A case can carry the legacy public.executive id used by the payments
-      // foreign key.  The mobile login record comes from public.executives and
-      // its id is not guaranteed to be the same value.
-      const paymentExecutiveId = cleanText(
-        linkedCase.assigned_executive_id || executive.id
-      );
+      // Payments FK points to public.executive, while mobile login comes from
+      // public.executives. Resolve the real FK id instead of assuming ids match.
+      const { data: paymentExecutive, error: paymentExecutiveError } =
+        await supabase
+          .from("executive")
+          .select("id")
+          .ilike("executive_code", executiveCode(executive))
+          .limit(1)
+          .maybeSingle();
 
-      if (!paymentExecutiveId) {
-        throw new Error("Case ka assigned executive ID nahi mila.");
+      if (paymentExecutiveError) throw paymentExecutiveError;
+      if (!paymentExecutive?.id) {
+        throw new Error(
+          "Payment executive mapping nahi mili. Admin se executive code check karvao."
+        );
       }
 
       const { data: paymentId, error } = await supabase.rpc(
         "mobile_record_payment",
         {
           p_case_id: linkedCase.id,
-          p_executive_id: paymentExecutiveId,
+          p_executive_id: String(paymentExecutive.id),
           p_executive_code: executiveCode(executive),
           p_mobile: executivePhone(executive),
           p_amount: amount,
@@ -1093,13 +1109,19 @@ export default function MobileExecutiveApp() {
                 Visit se alag customer payment save karein. Isme GPS/photo nahi lagega.
               </p>
               <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+                <input
+                  value={paymentCaseSearch}
+                  onChange={(event) => setPaymentCaseSearch(event.target.value)}
+                  placeholder="Customer name ya account number search karein"
+                  style={styles.input}
+                />
                 <select
                   value={paymentCaseId}
                   onChange={(event) => setPaymentCaseId(event.target.value)}
                   style={styles.input}
                 >
                   <option value="">Customer / case select karein</option>
-                  {cases.map((item) => (
+                  {paymentCases.map((item) => (
                     <option key={item.id} value={item.id}>
                       {customerName(item)} - {caseNumber(item)}
                     </option>
@@ -1741,4 +1763,3 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
 };
-
