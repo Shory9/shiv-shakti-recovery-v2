@@ -713,28 +713,11 @@ export default function MobileExecutiveApp() {
     setLoading(true);
     setMessage("Payment database mein save ho rahi hai...");
     try {
-      // Payments FK points to public.executive, while mobile login comes from
-      // public.executives. Resolve the real FK id instead of assuming ids match.
-      const { data: paymentExecutive, error: paymentExecutiveError } =
-        await supabase
-          .from("executive")
-          .select("id")
-          .ilike("executive_code", executiveCode(executive))
-          .limit(1)
-          .maybeSingle();
-
-      if (paymentExecutiveError) throw paymentExecutiveError;
-      if (!paymentExecutive?.id) {
-        throw new Error(
-          "Payment executive mapping nahi mili. Admin se executive code check karvao."
-        );
-      }
-
       const { data: paymentId, error } = await supabase.rpc(
         "mobile_record_payment",
         {
           p_case_id: linkedCase.id,
-          p_executive_id: String(paymentExecutive.id),
+          p_executive_id: String(executive.id),
           p_executive_code: executiveCode(executive),
           p_mobile: executivePhone(executive),
           p_amount: amount,
