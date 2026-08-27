@@ -6,6 +6,7 @@ type PaymentStatus = "All" | "Recorded" | "Pending" | "Verified" | "Rejected";
 
 type PaymentRecord = {
   id: string;
+  bank: PaymentBank;
   receiptNumber: string;
   customerName: string;
   mobile: string;
@@ -109,9 +110,11 @@ function PaymentsPage() {
   const [formReceipt, setFormReceipt] = useState("");
   const [formRemarks, setFormRemarks] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
 
   const loadPayments = useCallback(async (silent = false) => {
-    silent ? setRefreshing(true) : setLoading(true);
+    if (silent) setRefreshing(true);
+    else setLoading(true);
     setMessage("");
 
     try {
@@ -176,6 +179,7 @@ function PaymentsPage() {
 
         return {
           id: first(payment, ["id"], String(index + 1)),
+          bank: paymentBank,
           receiptNumber: first(
             payment,
             ["receipt_number", "receipt_no", "transaction_id", "reference_number"],
@@ -291,7 +295,32 @@ function PaymentsPage() {
     setSaving(false);
   }
 
+  async function deletePayment(payment: PaymentRecord) {
+    const confirmed = window.confirm(
+      `${payment.bank} payment permanently delete karein?\n\n` +
+      `Customer: ${payment.customerName}\n` +
+      `Amount: ${formatCurrency(payment.amount)}\n` +
+      `Date: ${payment.paymentDate}`
+    );
+    if (!confirmed || deletingId) return;
+
+    setDeletingId(payment.id);
+    setMessage("");
+    const table = payment.bank === "SBI" ? "sbi_payments" : "payments";
+    const { error } = await supabase.from(table).delete().eq("id", payment.id);
+
+    if (error) {
+      setMessage(`Payment delete error: ${error.message}`);
+    } else {
+      setMessage(`${payment.bank} payment successfully delete ho gayi.`);
+      await loadPayments(true);
+    }
+    setDeletingId("");
+  }
+
   useEffect(() => {
+    // Initial remote data sync is intentionally started when this page mounts.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadPayments();
 
     const channel = supabase
@@ -381,6 +410,7 @@ function PaymentsPage() {
         .payments-customer strong{display:block;color:#0f172a}.payments-customer span{display:block;margin-top:3px;color:#94a3b8}
         .payments-amount{font-weight:900;color:#0f172a}
         .payments-badge{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:10px;font-weight:900}
+        .payments-delete{min-height:38px;padding:0 12px;border:1px solid #fecaca;border-radius:9px;background:#fff1f2;color:#b91c1c;font-weight:900;cursor:pointer}.payments-delete:disabled{cursor:not-allowed;opacity:.55}
         .recorded,.verified{background:#ecfdf5;color:#047857}.pending{background:#fffbeb;color:#b45309}.rejected{background:#fef2f2;color:#b91c1c}
         .payments-empty{padding:50px 20px;text-align:center;color:#64748b;font-weight:700}
         @media(max-width:900px){.payments-stats{grid-template-columns:repeat(2,1fr)}.payments-toolbar{grid-template-columns:1fr}.payments-form{grid-template-columns:repeat(2,1fr)}}
@@ -496,6 +526,7 @@ function PaymentsPage() {
                   <th>Mode</th>
                   <th>Amount</th>
                   <th>Status</th>
+                  <th>Action</th>
                 </tr>
               </thead>
 
@@ -520,6 +551,17 @@ function PaymentsPage() {
                       <span className={`payments-badge ${payment.status.toLowerCase()}`}>
                         {payment.status}
                       </span>
+                    </td>
+                    <td>
+                      <button
+                        className="payments-delete"
+                        type="button"
+                        disabled={Boolean(deletingId)}
+                        onClick={() => void deletePayment(payment)}
+                        aria-label={`Delete ${payment.customerName} payment`}
+                      >
+                        {deletingId === payment.id ? "Deleting..." : "Delete"}
+                      </button>
                     </td>
                   </tr>
                 ))}
