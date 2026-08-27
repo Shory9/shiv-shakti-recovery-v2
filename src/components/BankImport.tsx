@@ -49,6 +49,7 @@ type ImportCase = {
   totalProvision: number;
   address: string | null;
   mobileNumber: string | null;
+  village: string | null;
   resolvedArea: string;
   isExisting: boolean;
 };
@@ -126,6 +127,14 @@ const getExactValue = (row: ExcelRow, expectedHeader: string): unknown => {
     (key) => normalizeHeader(key) === expected
   );
   return matchingKey ? row[matchingKey] : "";
+};
+
+const getFirstValue = (row: ExcelRow, headers: string[]): unknown => {
+  for (const header of headers) {
+    const value = getExactValue(row, header);
+    if (String(value ?? "").trim()) return value;
+  }
+  return "";
 };
 
 function isActiveExecutive(executive: Executive): boolean {
@@ -277,15 +286,28 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
       if (!sheetName) throw new Error("Excel me sheet nahi mili.");
 
       const worksheet = workbook.Sheets[sheetName];
+      const matrix = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: "", raw: false });
+      const requiredAliases = selectedBank === "SBI"
+        ? [["ACCOUNT"], ["CUST NAME"]]
+        : [["A/C No"], ["A/C Name"]];
+      const headerRowIndex = matrix.slice(0, 20).findIndex((row) => {
+        const headers = row.map(normalizeHeader);
+        return requiredAliases.every((aliases) => aliases.some((alias) => headers.includes(normalizeHeader(alias))));
+      });
+      if (headerRowIndex < 0) {
+        throw new Error(selectedBank === "SBI" ? "ACCOUNT aur CUST NAME columns nahi mili." : "A/C No aur A/C Name columns nahi mili.");
+      }
       const rows = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, {
         defval: "",
         raw: false,
+        range: headerRowIndex,
       });
 
       if (rows.length === 0) throw new Error("Excel file khali hai.");
 
       const actualHeaders = Object.keys(rows[0]).map(normalizeHeader);
-      const missingRequiredHeaders = REQUIRED_HEADERS.filter(
+      const requiredHeaders = selectedBank === "SBI" ? ["ACCOUNT", "CUST NAME"] : [...REQUIRED_HEADERS];
+      const missingRequiredHeaders = requiredHeaders.filter(
         (header) => !actualHeaders.includes(normalizeHeader(header))
       );
 
@@ -300,12 +322,8 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
       let missingMobile = 0;
 
       rows.forEach((row) => {
-        const accountNumber = String(
-          getExactValue(row, "A/C No") ?? ""
-        ).trim();
-        const accountName = String(
-          getExactValue(row, "A/C Name") ?? ""
-        ).trim();
+        const accountNumber = String(getFirstValue(row, ["A/C No", "ACCOUNT"]) ?? "").trim();
+        const accountName = String(getFirstValue(row, ["A/C Name", "CUST NAME"]) ?? "").trim();
         const normalizedAccount = normalizeAccount(accountNumber);
 
         if (!normalizedAccount || !accountName) {
@@ -319,8 +337,9 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
         }
 
         const alpha = textValue(getExactValue(row, "Alpha"));
-        const branch = textValue(getExactValue(row, "Branch"));
-        const address = textValue(getExactValue(row, "ADDRESS"));
+        const village = textValue(getFirstValue(row, ["VIILAGE", "VILLAGE"]));
+        const branch = textValue(getFirstValue(row, ["Branch", "VIILAGE", "VILLAGE"]));
+        const address = textValue(getFirstValue(row, ["ADDRESS", "VIILAGE", "VILLAGE"]));
         const mobileNumber = textValue(getExactValue(row, "MOBILE NO"));
 
         if (!address) missingAddress += 1;
@@ -342,12 +361,12 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
           customerId: textValue(getExactValue(row, "Cust ID")),
           accountNumber,
           accountName,
-          sanctionLimit: numberValue(getExactValue(row, "Sanction Limit")),
+          sanctionLimit: numberValue(getFirstValue(row, ["Sanction Limit", "LIMIT"])),
           sanctionDate: excelDateValue(getExactValue(row, "Sanction Date")),
           schemeCode: textValue(getExactValue(row, "Scheme Code")),
           revSeg: textValue(getExactValue(row, "REV SEG")),
-          balanceInr: numberValue(getExactValue(row, "Balance [INR]")),
-          customerBalance: numberValue(getExactValue(row, "Cust. Bal")),
+          balanceInr: numberValue(getFirstValue(row, ["Balance [INR]", "OUTSTAND"])),
+          customerBalance: numberValue(getFirstValue(row, ["Cust. Bal", "OUTSTAND"])),
           ecgcReceivable: numberValue(getExactValue(row, "ECGC Rece")),
           assetClass: textValue(getExactValue(row, "Class")),
           npaDate: excelDateValue(getExactValue(row, "NPA Date")),
@@ -356,6 +375,7 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
           totalProvision: numberValue(getExactValue(row, "Total Provision")),
           address,
           mobileNumber,
+          village,
           resolvedArea,
           isExisting: existingAccounts.has(normalizedAccount),
         });
@@ -506,6 +526,7 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
           total_provision: record.totalProvision,
           address: record.address,
           mobile_number: record.mobileNumber,
+          ...(selectedBank === "SBI" ? { village: record.village } : {}),
           bank_name: selectedBankContext.label,
           status: "pending",
           assigned_executive_id: selectedExecutive?.id ?? null,
