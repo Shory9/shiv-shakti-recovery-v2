@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 
-type SbiExecutive = {
+export type SbiExecutive = {
   id: string;
   executive_code: string;
   full_name: string;
   mobile: string | null;
   area: string | null;
+  vehicle_type: string | null;
   status: string;
 };
 
@@ -19,7 +20,11 @@ type SbiCase = {
   assigned_executive_id: string | null;
 };
 
-export default function SBIManagementPage() {
+type SBIManagementPageProps = {
+  onDirectImport?: (executive: SbiExecutive) => void;
+};
+
+export default function SBIManagementPage({ onDirectImport }: SBIManagementPageProps) {
   const [executives, setExecutives] = useState<SbiExecutive[]>([]);
   const [cases, setCases] = useState<SbiCase[]>([]);
   const [message, setMessage] = useState("");
@@ -28,7 +33,7 @@ export default function SBIManagementPage() {
   async function loadData() {
     setLoading(true);
     const [executiveResult, caseResult] = await Promise.all([
-      supabase.from("sbi_executives").select("id,executive_code,full_name,mobile,area,status").order("created_at"),
+      supabase.from("sbi_executives").select("id,executive_code,full_name,mobile,area,vehicle_type,status").order("created_at"),
       supabase.from("sbi_cases").select("id,account_number,account_name,village,status,assigned_executive_id").order("created_at", { ascending: false }),
     ]);
     if (executiveResult.error || caseResult.error) {
@@ -41,7 +46,11 @@ export default function SBIManagementPage() {
     setLoading(false);
   }
 
-  useEffect(() => { void loadData(); }, []);
+  useEffect(() => {
+    // Initial remote data sync is intentionally started when this page mounts.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadData();
+  }, []);
 
   async function approveExecutive(executive: SbiExecutive) {
     const { error } = await supabase.from("sbi_executives").update({ status: "approved" }).eq("id", executive.id);
@@ -68,31 +77,64 @@ export default function SBIManagementPage() {
     [executives]
   );
 
+  const assignedCountByExecutive = useMemo(() => {
+    const counts = new Map<string, number>();
+    cases.forEach((row) => {
+      if (row.assigned_executive_id) {
+        counts.set(row.assigned_executive_id, (counts.get(row.assigned_executive_id) || 0) + 1);
+      }
+    });
+    return counts;
+  }, [cases]);
+
+  const statusStyle = (status: string): React.CSSProperties => {
+    const active = ["approved", "active", "online"].includes(status.toLowerCase());
+    return {
+      display: "inline-block", padding: "4px 9px", borderRadius: 999,
+      background: active ? "#d1fae5" : "#fef3c7",
+      color: active ? "#047857" : "#b45309", fontSize: 12, fontWeight: 800,
+    };
+  };
+
   return (
-    <div style={{ padding: 24, display: "grid", gap: 22 }}>
-      <section style={{ background: "#eef6ff", border: "1px solid #93c5fd", borderRadius: 14, padding: 20 }}>
-        <h2 style={{ margin: 0 }}>SBI Operations — Isolated</h2>
-        <p style={{ marginBottom: 0 }}>Yahan sirf SBI executives aur SBI cases dikhte hain. BOB data is screen me use nahi hota.</p>
+    <div style={{ padding: 20, display: "grid", gap: 20, background: "#f8fafc", minHeight: "100vh" }}>
+      <section style={{ background: "linear-gradient(135deg,#082f49,#0369a1)", color: "white", borderRadius: 18, padding: 24, boxShadow: "0 12px 30px rgba(3,105,161,.18)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1.2, color: "#bae6fd" }}>STATE BANK OF INDIA</div>
+            <h2 style={{ margin: "7px 0 5px", fontSize: 24 }}>SBI Field Executive Management</h2>
+            <p style={{ margin: 0, color: "#e0f2fe" }}>Executive ke saamne file upload karke cases direct assign karein.</p>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ padding: "11px 15px", borderRadius: 12, background: "rgba(255,255,255,.12)" }}><small>Executives</small><strong style={{ display: "block", fontSize: 21 }}>{executives.length}</strong></div>
+            <div style={{ padding: "11px 15px", borderRadius: 12, background: "rgba(255,255,255,.12)" }}><small>SBI Cases</small><strong style={{ display: "block", fontSize: 21 }}>{cases.length}</strong></div>
+          </div>
+        </div>
       </section>
       {message && <div style={{ padding: 12, background: "#fff7ed", borderRadius: 10 }}>{message}</div>}
       {loading ? <p>Loading SBI data...</p> : (
         <>
-          <section style={{ background: "white", borderRadius: 14, padding: 20 }}>
-            <h3>SBI Executive Registrations</h3>
-            <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead><tr><th>Code</th><th>Name</th><th>Area</th><th>Status</th><th>Action</th></tr></thead>
-              <tbody>{executives.map((row) => <tr key={row.id}>
-                <td>{row.executive_code}</td><td>{row.full_name}</td><td>{row.area || "-"}</td><td>{row.status}</td>
-                <td>{row.status === "pending" && <button type="button" onClick={() => void approveExecutive(row)}>Approve</button>}</td>
-              </tr>)}</tbody>
+          <section style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 14, padding: 18 }}>
+            <h3 style={{ marginTop: 0 }}>SBI Executive List ({executives.length})</h3>
+            <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 900, borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+              <thead><tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}><th style={{ padding: 10 }}>Code</th><th>Name</th><th>Mobile</th><th>Assigned Area</th><th>Vehicle</th><th>Status</th><th>Cases</th><th style={{ textAlign: "right", padding: 10 }}>Actions</th></tr></thead>
+              <tbody>{executives.map((row) => {
+                const approved = ["approved", "active", "online"].includes(row.status.toLowerCase());
+                return <tr key={row.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                <td style={{ padding: 10, fontWeight: 800 }}>{row.executive_code}</td><td>{row.full_name}</td><td>{row.mobile || "-"}</td><td style={{ color: "#0369a1", fontWeight: 700 }}>{row.area || "-"}</td><td style={{ textTransform: "capitalize" }}>{row.vehicle_type || "-"}</td><td><span style={statusStyle(row.status)}>{row.status}</span></td><td style={{ fontWeight: 800 }}>{assignedCountByExecutive.get(row.id) || 0}</td>
+                <td style={{ textAlign: "right", padding: 10 }}><div style={{ display: "inline-flex", gap: 7 }}>
+                  <button type="button" disabled={!approved} onClick={() => onDirectImport?.(row)} style={{ padding: "7px 11px", border: 0, borderRadius: 6, background: "#2563eb", color: "white", fontWeight: 800, cursor: approved ? "pointer" : "not-allowed", opacity: approved ? 1 : .5 }}>Upload Bank File</button>
+                  {!approved && <button type="button" onClick={() => void approveExecutive(row)} style={{ padding: "7px 11px", border: 0, borderRadius: 6, background: "#16a34a", color: "white", fontWeight: 800, cursor: "pointer" }}>Approve</button>}
+                </div></td>
+              </tr>})}</tbody>
             </table></div>
           </section>
-          <section style={{ background: "white", borderRadius: 14, padding: 20 }}>
-            <h3>SBI Case Assignment</h3>
-            <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead><tr><th>Account</th><th>Customer</th><th>Village</th><th>Status</th><th>SBI Executive</th></tr></thead>
+          <section style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 14, padding: 18 }}>
+            <h3 style={{ marginTop: 0 }}>SBI Case Assignment</h3>
+            <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 760, borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+              <thead><tr style={{ background: "#f8fafc" }}><th style={{ padding: 9 }}>Account</th><th>Customer</th><th>Village</th><th>Status</th><th>SBI Executive</th></tr></thead>
               <tbody>{cases.map((row) => <tr key={row.id}>
-                <td>{row.account_number}</td><td>{row.account_name}</td><td>{row.village || "-"}</td><td>{row.status}</td>
+                <td style={{ padding: 9 }}>{row.account_number}</td><td>{row.account_name}</td><td>{row.village || "-"}</td><td>{row.status}</td>
                 <td><select value={row.assigned_executive_id || ""} onChange={(event) => void assignCase(row.id, event.target.value)}>
                   <option value="">Unassigned</option>
                   {approvedExecutives.map((executive) => <option key={executive.id} value={executive.id}>{executive.executive_code} - {executive.full_name}</option>)}

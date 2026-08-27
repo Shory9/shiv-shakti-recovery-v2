@@ -186,14 +186,16 @@ function assignmentAreaKey(value: unknown): string {
 type BankImportProps = {
   directExecutiveId?: string | null;
   directExecutiveName?: string | null;
+  directBank?: BankCode | null;
   onClearDirectExecutive?: () => void;
 };
 
-function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecutive }: BankImportProps): React.ReactElement {
+function BankImport({ directExecutiveId, directExecutiveName, directBank, onClearDirectExecutive }: BankImportProps): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [selectedBank, setSelectedBank] = useState<BankCode>("BOB");
+  const [selectedBank, setSelectedBank] = useState<BankCode>(directBank || "BOB");
   const selectedBankContext = bankContext(selectedBank);
+
   const [fileName, setFileName] = useState("");
   const [executives, setExecutives] = useState<Executive[]>([]);
   const [existingAccounts, setExistingAccounts] = useState<Set<string>>(new Set());
@@ -695,7 +697,7 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
           <label>
             Target Bank
             <br />
-            <select value={selectedBank} onChange={(event) => { resetImport(); setSelectedBank(event.target.value as BankCode); }} disabled={isImporting}>
+            <select value={selectedBank} onChange={(event) => { resetImport(); setSelectedBank(event.target.value as BankCode); }} disabled={isImporting || Boolean(directBank)}>
               <option value="BOB">Bank of Baroda (BOB)</option>
               <option value="SBI">State Bank of India (SBI)</option>
             </select>

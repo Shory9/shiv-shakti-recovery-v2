@@ -18,6 +18,7 @@ import ReportsPage from "./components/ReportsPage";
 import Sidebar from "./components/Sidebar";
 import type { Menu } from "./components/Sidebar";
 import SBIManagementPage from "./components/SBIManagementPage";
+import type { SbiExecutive } from "./components/SBIManagementPage";
 
 function App() {
   const isNativeApp = Capacitor.isNativePlatform();
@@ -27,6 +28,7 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeMenu, setActiveMenu] = useState<Menu>("Dashboard");
   const [bankImportExecutive, setBankImportExecutive] = useState<Executive | null>(null);
+  const [sbiImportExecutive, setSbiImportExecutive] = useState<SbiExecutive | null>(null);
 
   if (isNativeApp || isSbiPreview) {
     return <MobileExecutiveApp bankCode={isSbiBuild || isSbiPreview ? "SBI" : "BOB"} />;
@@ -43,19 +45,24 @@ function App() {
         return <DashboardPage />;
 
       case "Bank Import":
-        return <BankImport directExecutiveId={bankImportExecutive ? String(bankImportExecutive.id) : null} directExecutiveName={bankImportExecutive?.full_name || null} onClearDirectExecutive={() => setBankImportExecutive(null)} />;
+        return <BankImport
+          directExecutiveId={sbiImportExecutive?.id || (bankImportExecutive ? String(bankImportExecutive.id) : null)}
+          directExecutiveName={sbiImportExecutive?.full_name || bankImportExecutive?.full_name || null}
+          directBank={sbiImportExecutive ? "SBI" : bankImportExecutive ? "BOB" : null}
+          onClearDirectExecutive={() => { setBankImportExecutive(null); setSbiImportExecutive(null); }}
+        />;
 
       case "Cases":
         return <CasesPage />;
 
       case "Executive":
-        return <ExecutivesPage onDirectImport={(executive) => { setBankImportExecutive(executive); setActiveMenu("Bank Import"); }} />;
+        return <ExecutivesPage onDirectImport={(executive) => { setSbiImportExecutive(null); setBankImportExecutive(executive); setActiveMenu("Bank Import"); }} />;
 
       case "Executive App":
         return <ExecutiveAppPage />;
 
       case "SBI Management":
-        return <SBIManagementPage />;
+        return <SBIManagementPage onDirectImport={(executive) => { setBankImportExecutive(null); setSbiImportExecutive(executive); setActiveMenu("Bank Import"); }} />;
 
       case "GPS Tracking":
         return <GPSPage />;
