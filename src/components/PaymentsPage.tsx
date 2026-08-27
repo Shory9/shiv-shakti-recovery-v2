@@ -103,6 +103,7 @@ function PaymentsPage() {
   const [executiveOptions, setExecutiveOptions] = useState<AdminExecutiveOption[]>([]);
   const [formBank, setFormBank] = useState<PaymentBank>("BOB");
   const [formCaseId, setFormCaseId] = useState("");
+  const [formCaseSearch, setFormCaseSearch] = useState("");
   const [formExecutiveId, setFormExecutiveId] = useState("");
   const [formAmount, setFormAmount] = useState("");
   const [formMode, setFormMode] = useState("Cash");
@@ -111,6 +112,15 @@ function PaymentsPage() {
   const [formRemarks, setFormRemarks] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState("");
+
+  const filteredCaseOptions = useMemo(() => {
+    const query = formCaseSearch.trim().toLowerCase();
+    return caseOptions.filter(
+      (row) =>
+        row.bank === formBank &&
+        (!query || row.label.toLowerCase().includes(query))
+    );
+  }, [caseOptions, formBank, formCaseSearch]);
 
   const loadPayments = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -289,7 +299,7 @@ function PaymentsPage() {
       setMessage(`Payment save error: ${error.message}`);
     } else {
       setMessage(`${formBank} payment successfully add ho gayi.`);
-      setFormAmount(""); setFormReceipt(""); setFormRemarks(""); setFormCaseId(""); setFormExecutiveId("");
+      setFormAmount(""); setFormReceipt(""); setFormRemarks(""); setFormCaseId(""); setFormCaseSearch(""); setFormExecutiveId("");
       await loadPayments(true);
     }
     setSaving(false);
@@ -462,8 +472,9 @@ function PaymentsPage() {
       <section className="payments-panel">
         <div className="payments-heading"><div><h2>Add Payment by Admin</h2><p>Bank aur case select karke verified collection entry save karein.</p></div></div>
         <form className="payments-form" onSubmit={addAdminPayment}>
-          <label>Bank<select className="payments-select" value={formBank} onChange={(e) => { setFormBank(e.target.value as PaymentBank); setFormCaseId(""); setFormExecutiveId(""); }}><option value="BOB">Bank of Baroda</option><option value="SBI">State Bank of India</option></select></label>
-          <label className="wide">Customer / Case<select className="payments-select" value={formCaseId} onChange={(e) => setFormCaseId(e.target.value)} required><option value="">Select case</option>{caseOptions.filter((row) => row.bank === formBank).map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
+          <label>Bank<select className="payments-select" value={formBank} onChange={(e) => { setFormBank(e.target.value as PaymentBank); setFormCaseId(""); setFormCaseSearch(""); setFormExecutiveId(""); }}><option value="BOB">Bank of Baroda</option><option value="SBI">State Bank of India</option></select></label>
+          <label className="wide">Search Customer / Account<input className="payments-input" type="search" value={formCaseSearch} onChange={(e) => { setFormCaseSearch(e.target.value); setFormCaseId(""); }} placeholder="Account number ya customer name type karein" /></label>
+          <label className="wide">Customer / Case<select className="payments-select" value={formCaseId} onChange={(e) => setFormCaseId(e.target.value)} required><option value="">{formCaseSearch && filteredCaseOptions.length === 0 ? "No matching case" : "Select case"}</option>{filteredCaseOptions.map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
           <label>Branch<input className="payments-input" value={caseOptions.find((row) => row.bank === formBank && row.id === formCaseId)?.branch ?? ""} placeholder="Case select karne par branch aayegi" readOnly required /></label>
           <label>Executive<select className="payments-select" value={formExecutiveId} onChange={(e) => setFormExecutiveId(e.target.value)}><option value="">Admin / No executive</option>{executiveOptions.filter((row) => row.bank === formBank).map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
           <label>Amount<input className="payments-input" type="number" min="1" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required /></label>
