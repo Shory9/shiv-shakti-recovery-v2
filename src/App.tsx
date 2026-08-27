@@ -17,16 +17,19 @@ import PaymentsPage from "./components/PaymentsPage";
 import ReportsPage from "./components/ReportsPage";
 import Sidebar from "./components/Sidebar";
 import type { Menu } from "./components/Sidebar";
+import SBIManagementPage from "./components/SBIManagementPage";
 
 function App() {
   const isNativeApp = Capacitor.isNativePlatform();
+  const isSbiBuild = import.meta.env.VITE_MOBILE_BANK === "SBI";
+  const isSbiPreview = window.location.pathname === "/sbi-preview";
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeMenu, setActiveMenu] = useState<Menu>("Dashboard");
   const [bankImportExecutive, setBankImportExecutive] = useState<Executive | null>(null);
 
-  if (isNativeApp) {
-    return <MobileExecutiveApp />;
+  if (isNativeApp || isSbiPreview) {
+    return <MobileExecutiveApp bankCode={isSbiBuild || isSbiPreview ? "SBI" : "BOB"} />;
   }
 
   const handleLogout = () => {
@@ -50,6 +53,9 @@ function App() {
 
       case "Executive App":
         return <ExecutiveAppPage />;
+
+      case "SBI Management":
+        return <SBIManagementPage />;
 
       case "GPS Tracking":
         return <GPSPage />;

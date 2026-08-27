@@ -4,6 +4,7 @@ export type Menu =
   | "Cases"
   | "Executive"
   | "Executive App"
+  | "SBI Management"
   | "GPS Tracking"
   | "Field Visits"
   | "Payments"
@@ -20,6 +21,7 @@ const menuItems: { name: Menu; icon: string }[] = [
   { name: "Cases", icon: "📁" },
   { name: "Executive", icon: "👨‍💼" },
   { name: "Executive App", icon: "📱" },
+  { name: "SBI Management", icon: "🏦" },
   { name: "GPS Tracking", icon: "📍" },
   { name: "Field Visits", icon: "📸" },
   { name: "Payments", icon: "💰" },

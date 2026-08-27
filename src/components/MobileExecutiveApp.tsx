@@ -14,6 +14,7 @@ import {
 import { Geolocation } from "@capacitor/geolocation";
 import { supabase } from "../supabaseClient";
 import { initializeWorkReminders } from "../utils/workReminderNotifications";
+import { bankContext, type BankCode } from "../types/bank";
 
 type ExecutiveRow = {
   id: number | string;
@@ -69,6 +70,9 @@ type Screen =
   | "payments"
   | "profile";
 
+const MOBILE_EXECUTIVE_ID_KEY = "ssr_mobile_executive_id";
+const MOBILE_SCREEN_KEY = "ssr_mobile_screen";
+
 
 
 const cleanText = (value: unknown) => String(value ?? "").trim();
@@ -84,10 +88,6 @@ function errorMessage(error: unknown, fallback: string) {
   }
 
   return fallback;
-}
-
-function executiveCode(row: ExecutiveRow) {
-  return cleanText(row.executive_code || `SS${row.id}`);
 }
 
 function executiveName(row: ExecutiveRow) {
@@ -235,7 +235,19 @@ function stampVisitPhoto(
 }
 
 
-export default function MobileExecutiveApp() {
+type MobileExecutiveAppProps = {
+  bankCode?: BankCode;
+};
+
+export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutiveAppProps) {
+  const isSbi = bankCode === "SBI";
+  const context = bankContext(bankCode);
+  const codePrefix = isSbi ? "SBI" : "SS";
+  const rpcName = (name: string) => isSbi ? `sbi_${name}` : name;
+  const getExecutiveCode = (row: ExecutiveRow) =>
+    cleanText(row.executive_code || `${codePrefix}${row.id}`);
+  const executiveStorageKey = `${MOBILE_EXECUTIVE_ID_KEY}_${bankCode.toLowerCase()}`;
+  const screenStorageKey = `${MOBILE_SCREEN_KEY}_${bankCode.toLowerCase()}`;
   const [screen, setScreen] = useState<Screen>("login");
   const [executive, setExecutive] = useState<ExecutiveRow | null>(null);
   const [cases, setCases] = useState<CaseRow[]>([]);
@@ -294,9 +306,18 @@ export default function MobileExecutiveApp() {
 
 
   useEffect(() => {
-    const savedId = cleanText(localStorage.getItem("ssr_mobile_executive_id"));
+    const savedId = cleanText(localStorage.getItem(executiveStorageKey));
     if (savedId) void restoreSession(savedId);
   }, []);
+
+  useEffect(() => {
+    if (
+      executive &&
+      !["login", "register", "pending"].includes(screen)
+    ) {
+      localStorage.setItem(screenStorageKey, screen);
+    }
+  }, [executive, screen, screenStorageKey]);
 
   useEffect(() => {
     if (
@@ -325,9 +346,9 @@ export default function MobileExecutiveApp() {
         try {
           const now = new Date().toISOString();
 
-          const { error } = await supabase.rpc("mobile_save_gps_location", {
+          const { error } = await supabase.rpc(rpcName("mobile_save_gps_location"), {
             p_executive_id: String(executive.id),
-            p_executive_code: executiveCode(executive),
+            p_executive_code: getExecutiveCode(executive),
             p_mobile: executivePhone(executive),
             p_latitude: lat,
             p_longitude: lng,
@@ -358,13 +379,18 @@ export default function MobileExecutiveApp() {
   async function restoreSession(id: number | string) {
     setLoading(true);
     setMessage("");
+    const savedScreen = cleanText(localStorage.getItem(screenStorageKey));
 
     try {
-      const { data, error } = await supabase
-        .from("executives")
-        .select("*")
-        .eq("id", id)
-        .maybeSingle();
+      const { data, error } = isSbi
+        ? await supabase
+            .rpc("sbi_mobile_find_executive", { p_id: String(id), p_code: null, p_mobile: null })
+            .maybeSingle()
+        : await supabase
+            .from(context.tables.executives)
+            .select("*")
+            .eq("id", id)
+            .maybeSingle();
 
       if (error) throw error;
       if (!data) throw new Error("Executive account nahi mila.");
@@ -373,13 +399,17 @@ export default function MobileExecutiveApp() {
       setExecutive(row);
 
       if (isApproved(row)) {
-        setScreen("dashboard");
+        const restoredScreen: Screen =
+          savedScreen === "payments" ? "payments" : "dashboard";
+        setScreen(restoredScreen);
         await loadCases(row);
+        if (restoredScreen === "payments") await loadPayments(row);
       } else {
         setScreen("pending");
       }
     } catch (error) {
-      localStorage.removeItem("ssr_mobile_executive_id");
+      localStorage.removeItem(executiveStorageKey);
+      localStorage.removeItem(screenStorageKey);
       setExecutive(null);
       setScreen("login");
       setMessage(
@@ -405,19 +435,24 @@ export default function MobileExecutiveApp() {
     setMessage("");
 
     try {
-      const { data, error } = await supabase.from("executives").select("*");
+      const { data, error } = isSbi
+        ? await supabase.rpc("sbi_mobile_find_executive", {
+            p_id: null,
+            p_code: code,
+            p_mobile: phone,
+          })
+        : await supabase.from(context.tables.executives).select("*");
       if (error) throw error;
 
-      const match = ((data ?? []) as ExecutiveRow[]).find(
-        (row) =>
-          executiveCode(row).toLowerCase() === code &&
-          executivePhone(row) === phone
+      const match = ((data ?? []) as ExecutiveRow[]).find((row) =>
+        isSbi ||
+        (getExecutiveCode(row).toLowerCase() === code && executivePhone(row) === phone)
       );
 
       if (!match) throw new Error("Executive code ya mobile number galat hai.");
 
       setExecutive(match);
-      localStorage.setItem("ssr_mobile_executive_id", String(match.id));
+      localStorage.setItem(executiveStorageKey, String(match.id));
 
       if (!isApproved(match)) {
         setScreen("pending");
@@ -449,8 +484,25 @@ export default function MobileExecutiveApp() {
     setMessage("");
 
     try {
+      if (isSbi) {
+        const { data, error } = await supabase.rpc("sbi_register_executive", {
+          p_full_name: name,
+          p_mobile: phone,
+          p_area: executiveArea,
+          p_vehicle_type: vehicleType,
+        });
+        if (error) throw error;
+        const pendingExecutive = ((data ?? []) as ExecutiveRow[])[0];
+        if (!pendingExecutive) throw new Error("SBI registration save nahi hua.");
+        setExecutive(pendingExecutive);
+        localStorage.setItem(executiveStorageKey, String(pendingExecutive.id));
+        setScreen("pending");
+        setMessage(`Registration successful. Aapka code ${getExecutiveCode(pendingExecutive)} hai.`);
+        return;
+      }
+
       const { data: existing, error: existingError } = await supabase
-        .from("executives")
+        .from(context.tables.executives)
         .select("id, executive_code, mobile");
 
       if (existingError) throw existingError;
@@ -463,14 +515,14 @@ export default function MobileExecutiveApp() {
       }
 
       const maxNumber = rows.reduce((max, row) => {
-        const match = executiveCode(row).match(/(\d+)$/);
+        const match = getExecutiveCode(row).match(/(\d+)$/);
         return match ? Math.max(max, Number(match[1])) : max;
       }, 0);
 
-      const generatedCode = `SS${String(maxNumber + 1).padStart(3, "0")}`;
+      const generatedCode = `${codePrefix}${String(maxNumber + 1).padStart(3, "0")}`;
 
       const { data, error } = await supabase
-        .from("executives")
+        .from(context.tables.executives)
         .insert({
           id: crypto.randomUUID(),
           executive_code: generatedCode,
@@ -488,7 +540,7 @@ export default function MobileExecutiveApp() {
       const pendingExecutive = data as ExecutiveRow;
       setExecutive(pendingExecutive);
       localStorage.setItem(
-        "ssr_mobile_executive_id",
+        executiveStorageKey,
         String(pendingExecutive.id)
       );
       setScreen("pending");
@@ -508,9 +560,9 @@ export default function MobileExecutiveApp() {
     setMessage("");
 
     try {
-      const { data, error } = await supabase.rpc("mobile_executive_cases", {
+      const { data, error } = await supabase.rpc(rpcName("mobile_executive_cases"), {
         p_executive_id: String(row.id),
-        p_executive_code: executiveCode(row),
+        p_executive_code: getExecutiveCode(row),
         p_mobile: executivePhone(row),
       });
 
@@ -541,10 +593,10 @@ export default function MobileExecutiveApp() {
     try {
       if (!executive) throw new Error("Executive session nahi mili.");
 
-      const { data, error } = await supabase.rpc("mobile_update_case_status", {
+      const { data, error } = await supabase.rpc(rpcName("mobile_update_case_status"), {
         p_case_id: caseId,
         p_executive_id: String(executive.id),
-        p_executive_code: executiveCode(executive),
+        p_executive_code: getExecutiveCode(executive),
         p_mobile: executivePhone(executive),
         p_status: nextStatus,
       });
@@ -579,9 +631,9 @@ export default function MobileExecutiveApp() {
     if (!row) return;
 
     try {
-      const { data, error } = await supabase.rpc("mobile_executive_payments", {
+      const { data, error } = await supabase.rpc(rpcName("mobile_executive_payments"), {
         p_executive_id: String(row.id),
-        p_executive_code: executiveCode(row),
+        p_executive_code: getExecutiveCode(row),
         p_mobile: executivePhone(row),
       });
       if (error) throw error;
@@ -643,7 +695,7 @@ export default function MobileExecutiveApp() {
 
       setMessage("GPS-stamped visit photo upload ho rahi hai...");
       const { error: uploadError } = await supabase.storage
-        .from("visit-photos")
+        .from(isSbi ? "sbi-visit-photos" : "visit-photos")
         .upload(photoPath, photo, {
           cacheControl: "3600",
           contentType: "image/jpeg",
@@ -652,10 +704,10 @@ export default function MobileExecutiveApp() {
 
       if (uploadError) throw uploadError;
 
-      const { data, error } = await supabase.rpc("mobile_record_detailed_visit", {
+      const { data, error } = await supabase.rpc(rpcName("mobile_record_detailed_visit"), {
         p_case_id: visitCase.id,
         p_executive_id: String(executive.id),
-        p_executive_code: executiveCode(executive),
+        p_executive_code: getExecutiveCode(executive),
         p_mobile: executivePhone(executive),
         p_photo_path: photoPath,
         p_latitude: coords.lat,
@@ -714,11 +766,11 @@ export default function MobileExecutiveApp() {
     setMessage("Payment database mein save ho rahi hai...");
     try {
       const { data: paymentId, error } = await supabase.rpc(
-        "mobile_record_payment",
+        rpcName("mobile_record_payment"),
         {
           p_case_id: linkedCase.id,
           p_executive_id: String(executive.id),
-          p_executive_code: executiveCode(executive),
+          p_executive_code: getExecutiveCode(executive),
           p_mobile: executivePhone(executive),
           p_amount: amount,
           p_payment_mode: paymentType,
@@ -735,6 +787,7 @@ export default function MobileExecutiveApp() {
       setPaymentRemarks("");
       setPaymentCaseId("");
       await loadPayments(executive);
+      setScreen("payments");
       setMessage(`${customerName(linkedCase)} ki ${paymentType} payment save ho gayi.`);
     } catch (error) {
       console.error("Payment save error:", error);
@@ -747,7 +800,8 @@ export default function MobileExecutiveApp() {
 
   function logout() {
     void supabase.auth.signOut();
-    localStorage.removeItem("ssr_mobile_executive_id");
+    localStorage.removeItem(executiveStorageKey);
+    localStorage.removeItem(screenStorageKey);
     setExecutive(null);
     setCases([]);
     setSelectedCase(null);
@@ -802,7 +856,7 @@ export default function MobileExecutiveApp() {
         <header style={styles.header}>
           <img src="/logo.png" alt="Shiv Shakti" style={styles.logo} />
           <div>
-            <strong style={{ fontSize: 18 }}>Shiv Shakti Recovery</strong>
+            <strong style={{ fontSize: 18 }}>Shiv Shakti Recovery {isSbi ? "— SBI" : ""}</strong>
             <div style={{ fontSize: 12, opacity: 0.75 }}>
               Executive Mobile App
             </div>
@@ -838,7 +892,7 @@ export default function MobileExecutiveApp() {
                 style={styles.input}
                 value={loginCode}
                 onChange={(event) => setLoginCode(event.target.value)}
-                placeholder="Executive Code (SS001)"
+                placeholder={`Executive Code (${codePrefix}001)`}
                 autoCapitalize="characters"
               />
               <input
@@ -922,7 +976,7 @@ export default function MobileExecutiveApp() {
             </p>
             <div style={styles.infoBox}>
               <b>{executiveName(executive)}</b>
-              <span>Code: {executiveCode(executive)}</span>
+              <span>Code: {getExecutiveCode(executive)}</span>
               <span>Mobile: {executivePhone(executive)}</span>
               <span>Status: {cleanText(executive.status) || "Pending"}</span>
             </div>
@@ -948,7 +1002,7 @@ export default function MobileExecutiveApp() {
                   {executiveName(executive)}
                 </h1>
                 <div>
-                  {executiveCode(executive)} {" | "} {cleanText(executive.area)}
+                  {getExecutiveCode(executive)} {" | "} {cleanText(executive.area)}
                 </div>
               </div>
               <button style={styles.logoutButton} onClick={logout}>
@@ -1195,7 +1249,7 @@ export default function MobileExecutiveApp() {
               <h1 style={styles.title}>Executive Profile</h1>
               <div style={styles.infoBox}>
                 <b>{executiveName(executive)}</b>
-                <span>Code: {executiveCode(executive)}</span>
+                <span>Code: {getExecutiveCode(executive)}</span>
                 <span>Mobile: {executivePhone(executive)}</span>
                 <span>Area: {cleanText(executive.area)}</span>
                 <span>Vehicle: {cleanText(executive.vehicle_type)}</span>
@@ -1379,6 +1433,7 @@ export default function MobileExecutiveApp() {
                   color: screen === "payments" ? "#b91c1c" : "#7f1d1d",
                 }}
                 onClick={() => {
+                  localStorage.setItem(screenStorageKey, "payments");
                   setScreen("payments");
                   void loadPayments();
                 }}

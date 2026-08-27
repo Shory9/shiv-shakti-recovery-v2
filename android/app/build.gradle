@@ -16,6 +16,20 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    flavorDimensions += "bank"
+    productFlavors {
+        bob {
+            dimension "bank"
+            applicationId "com.shivshakti.recovery"
+            resValue "string", "app_name", "Shiv Shakti Recovery"
+        }
+        sbi {
+            dimension "bank"
+            applicationId "com.shivshakti.recovery.sbi"
+            versionNameSuffix "-sbi"
+            resValue "string", "app_name", "Shiv Shakti SBI Executive"
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false

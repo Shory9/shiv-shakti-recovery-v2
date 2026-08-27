@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:sbi": "tsc -b && vite build --mode sbi",
+    "android:sbi:sync": "npm run build:sbi && cap sync android",
+    "android:sbi:apk": "npm run android:sbi:sync && cd android && gradlew.bat assembleSbiDebug",
     "lint": "eslint .",
     "preview": "vite preview"
   },

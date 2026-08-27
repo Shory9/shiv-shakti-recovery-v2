@@ -8,6 +8,7 @@ import React, {
 import * as XLSX from "xlsx";
 import { supabase } from "../supabaseClient";
 import { normalizeText, resolveCaseArea } from "../utils/caseImport";
+import { bankContext, type BankCode } from "../types/bank";
 import "./BankImport.css";
 
 type ExcelRow = Record<string, unknown>;
@@ -158,7 +159,8 @@ type BankImportProps = {
 function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecutive }: BankImportProps): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [selectedBank, setSelectedBank] = useState("Bank of Baroda (BOB)");
+  const [selectedBank, setSelectedBank] = useState<BankCode>("BOB");
+  const selectedBankContext = bankContext(selectedBank);
   const [fileName, setFileName] = useState("");
   const [executives, setExecutives] = useState<Executive[]>([]);
   const [existingAccounts, setExistingAccounts] = useState<Set<string>>(new Set());
@@ -177,14 +179,14 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
 
   useEffect(() => {
     void loadInitialData();
-  }, []);
+  }, [selectedBank]);
 
   async function loadInitialData(): Promise<void> {
     setIsLoadingExisting(true);
 
     try {
       const { data: executiveData, error: executiveError } = await supabase
-        .from("executives")
+        .from(selectedBankContext.tables.executives)
         .select("id, executive_code, full_name, area, status")
         .order("created_at", { ascending: true });
 
@@ -209,7 +211,7 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
 
       while (true) {
         const { data, error } = await supabase
-          .from("cases")
+          .from(selectedBankContext.tables.cases)
           .select("account_number, assigned_executive_id")
           .range(from, from + pageSize - 1);
 
@@ -504,7 +506,7 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
           total_provision: record.totalProvision,
           address: record.address,
           mobile_number: record.mobileNumber,
-          bank_name: selectedBank,
+          bank_name: selectedBankContext.label,
           status: "pending",
           assigned_executive_id: selectedExecutive?.id ?? null,
           assigned_executive: selectedExecutive
@@ -524,7 +526,7 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
         const batch = payload.slice(index, index + batchSize);
 
         const { error } = await supabase
-          .from("cases")
+          .from(selectedBankContext.tables.cases)
           .upsert(batch, {
             onConflict: "account_number",
             ignoreDuplicates: true,
@@ -634,9 +636,9 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
           <label>
             Target Bank
             <br />
-            <select value={selectedBank} onChange={(event) => setSelectedBank(event.target.value)} disabled={isImporting}>
-              <option>Bank of Baroda (BOB)</option>
-              <option>State Bank of India (SBI)</option>
+            <select value={selectedBank} onChange={(event) => { resetImport(); setSelectedBank(event.target.value as BankCode); }} disabled={isImporting}>
+              <option value="BOB">Bank of Baroda (BOB)</option>
+              <option value="SBI">State Bank of India (SBI)</option>
             </select>
           </label>
 
