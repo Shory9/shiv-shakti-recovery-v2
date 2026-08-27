@@ -10,6 +10,7 @@ type PaymentRecord = {
   customerName: string;
   mobile: string;
   caseNumber: string;
+  branch: string;
   executiveName: string;
   bankName: string;
   amount: number;
@@ -19,7 +20,7 @@ type PaymentRecord = {
 };
 
 type PaymentBank = "BOB" | "SBI";
-type AdminCaseOption = { id: string; bank: PaymentBank; label: string };
+type AdminCaseOption = { id: string; bank: PaymentBank; label: string; branch: string };
 type AdminExecutiveOption = { id: string; bank: PaymentBank; label: string };
 
 const PAGE_SIZE = 1000;
@@ -151,6 +152,7 @@ function PaymentsPage() {
       setCaseOptions(caseRows.map((row) => ({
         id: first(row, ["id"]),
         bank: first(row, ["__bank"], "BOB") as PaymentBank,
+        branch: first(row, ["branch", "village", "area"]),
         label: `${first(row, ["account_number"], "-")} - ${first(row, ["account_name"], "Unknown")}`,
       })).filter((row) => row.id));
       setExecutiveOptions(profileRows.map((row) => ({
@@ -193,6 +195,11 @@ function PaymentsPage() {
             payment,
             ["case_number"],
             first(caseRow, ["account_number", "case_number", "account_no", "id"], "-")
+          ),
+          branch: first(
+            payment,
+            ["payment_branch", "branch"],
+            first(caseRow, ["branch", "village", "area"], "-")
           ),
           executiveName: first(
             payment,
@@ -254,8 +261,11 @@ function PaymentsPage() {
   async function addAdminPayment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const amount = numberValue(formAmount);
-    if (!formCaseId || amount <= 0 || !formDate) {
-      setMessage("Case, valid amount aur payment date required hai.");
+    const selectedCase = caseOptions.find(
+      (row) => row.bank === formBank && row.id === formCaseId
+    );
+    if (!formCaseId || amount <= 0 || !formDate || !selectedCase?.branch) {
+      setMessage("Case, branch, valid amount aur payment date required hai.");
       return;
     }
     setSaving(true);
@@ -319,6 +329,7 @@ function PaymentsPage() {
         payment.caseNumber.toLowerCase().includes(query) ||
         payment.receiptNumber.toLowerCase().includes(query) ||
         payment.executiveName.toLowerCase().includes(query) ||
+        payment.branch.toLowerCase().includes(query) ||
         payment.bankName.toLowerCase().includes(query);
 
       const matchesStatus =
@@ -423,6 +434,7 @@ function PaymentsPage() {
         <form className="payments-form" onSubmit={addAdminPayment}>
           <label>Bank<select className="payments-select" value={formBank} onChange={(e) => { setFormBank(e.target.value as PaymentBank); setFormCaseId(""); setFormExecutiveId(""); }}><option value="BOB">Bank of Baroda</option><option value="SBI">State Bank of India</option></select></label>
           <label className="wide">Customer / Case<select className="payments-select" value={formCaseId} onChange={(e) => setFormCaseId(e.target.value)} required><option value="">Select case</option>{caseOptions.filter((row) => row.bank === formBank).map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
+          <label>Branch<input className="payments-input" value={caseOptions.find((row) => row.bank === formBank && row.id === formCaseId)?.branch ?? ""} placeholder="Case select karne par branch aayegi" readOnly required /></label>
           <label>Executive<select className="payments-select" value={formExecutiveId} onChange={(e) => setFormExecutiveId(e.target.value)}><option value="">Admin / No executive</option>{executiveOptions.filter((row) => row.bank === formBank).map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
           <label>Amount<input className="payments-input" type="number" min="1" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required /></label>
           <label>Payment Mode<select className="payments-select" value={formMode} onChange={(e) => setFormMode(e.target.value)}><option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Settlement</option></select></label>
@@ -478,6 +490,7 @@ function PaymentsPage() {
                   <th>Customer</th>
                   <th>Case Number</th>
                   <th>Bank</th>
+                  <th>Branch</th>
                   <th>Executive</th>
                   <th>Payment Date</th>
                   <th>Mode</th>
@@ -498,6 +511,7 @@ function PaymentsPage() {
                     </td>
                     <td>{payment.caseNumber}</td>
                     <td>{payment.bankName}</td>
+                    <td>{payment.branch}</td>
                     <td>{payment.executiveName}</td>
                     <td>{payment.paymentDate}</td>
                     <td>{payment.paymentMode}</td>
