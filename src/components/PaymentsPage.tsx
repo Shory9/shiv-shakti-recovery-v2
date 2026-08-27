@@ -18,6 +18,10 @@ type PaymentRecord = {
   status: Exclude<PaymentStatus, "All">;
 };
 
+type PaymentBank = "BOB" | "SBI";
+type AdminCaseOption = { id: string; bank: PaymentBank; label: string };
+type AdminExecutiveOption = { id: string; bank: PaymentBank; label: string };
+
 const PAGE_SIZE = 1000;
 
 function text(value: unknown): string {
@@ -64,7 +68,7 @@ function formatDate(value: unknown): string {
   return date.toLocaleDateString("en-IN");
 }
 
-async function fetchAll(table: "payments" | "cases" | "executives") {
+async function fetchAll(table: "payments" | "cases" | "executives" | "sbi_payments" | "sbi_cases" | "sbi_executives") {
   const rows: RawRow[] = [];
   let from = 0;
 
@@ -93,29 +97,67 @@ function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
+  const [caseOptions, setCaseOptions] = useState<AdminCaseOption[]>([]);
+  const [executiveOptions, setExecutiveOptions] = useState<AdminExecutiveOption[]>([]);
+  const [formBank, setFormBank] = useState<PaymentBank>("BOB");
+  const [formCaseId, setFormCaseId] = useState("");
+  const [formExecutiveId, setFormExecutiveId] = useState("");
+  const [formAmount, setFormAmount] = useState("");
+  const [formMode, setFormMode] = useState("Cash");
+  const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
+  const [formReceipt, setFormReceipt] = useState("");
+  const [formRemarks, setFormRemarks] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const loadPayments = useCallback(async (silent = false) => {
     silent ? setRefreshing(true) : setLoading(true);
     setMessage("");
 
     try {
-      const [paymentRows, caseRows, profileRows] = await Promise.all([
+      const [bobPaymentRows, bobCaseRows, bobProfileRows, sbiPaymentRows, sbiCaseRows, sbiProfileRows] = await Promise.all([
         fetchAll("payments"),
         fetchAll("cases"),
         fetchAll("executives"),
+        fetchAll("sbi_payments"),
+        fetchAll("sbi_cases"),
+        fetchAll("sbi_executives"),
       ]);
+
+      const paymentRows: RawRow[] = [
+        ...bobPaymentRows.map((row) => ({ ...row, __bank: "BOB" })),
+        ...sbiPaymentRows.map((row) => ({ ...row, __bank: "SBI" })),
+      ];
+      const caseRows: RawRow[] = [
+        ...bobCaseRows.map((row) => ({ ...row, __bank: "BOB" })),
+        ...sbiCaseRows.map((row) => ({ ...row, __bank: "SBI" })),
+      ];
+      const profileRows: RawRow[] = [
+        ...bobProfileRows.map((row) => ({ ...row, __bank: "BOB" })),
+        ...sbiProfileRows.map((row) => ({ ...row, __bank: "SBI" })),
+      ];
 
       const casesById = new Map<string, RawRow>();
       caseRows.forEach((row) => {
         const id = first(row, ["id", "case_id"]);
-        if (id) casesById.set(id, row);
+        if (id) casesById.set(`${first(row, ["__bank"], "BOB")}:${id}`, row);
       });
 
       const profilesById = new Map<string, RawRow>();
       profileRows.forEach((row) => {
         const id = first(row, ["id", "profile_id"]);
-        if (id) profilesById.set(id, row);
+        if (id) profilesById.set(`${first(row, ["__bank"], "BOB")}:${id}`, row);
       });
+
+      setCaseOptions(caseRows.map((row) => ({
+        id: first(row, ["id"]),
+        bank: first(row, ["__bank"], "BOB") as PaymentBank,
+        label: `${first(row, ["account_number"], "-")} - ${first(row, ["account_name"], "Unknown")}`,
+      })).filter((row) => row.id));
+      setExecutiveOptions(profileRows.map((row) => ({
+        id: first(row, ["id"]),
+        bank: first(row, ["__bank"], "BOB") as PaymentBank,
+        label: `${first(row, ["executive_code"], "-")} - ${first(row, ["full_name"], "Executive")}`,
+      })).filter((row) => row.id));
 
       const mapped = paymentRows.map((payment, index): PaymentRecord => {
         const caseId = first(payment, ["case_id"]);
@@ -125,9 +167,10 @@ function PaymentsPage() {
           "profile_id",
           "created_by",
         ]);
+        const paymentBank = first(payment, ["__bank"], "BOB") as PaymentBank;
 
-        const caseRow = casesById.get(caseId) ?? {};
-        const profileRow = profilesById.get(executiveId) ?? {};
+        const caseRow = casesById.get(`${paymentBank}:${caseId}`) ?? {};
+        const profileRow = profilesById.get(`${paymentBank}:${executiveId}`) ?? {};
 
         return {
           id: first(payment, ["id"], String(index + 1)),
@@ -159,7 +202,7 @@ function PaymentsPage() {
           bankName: first(
             payment,
             ["bank_name"],
-            first(caseRow, ["bank_name", "branch"], "-")
+            first(caseRow, ["bank_name"], paymentBank === "SBI" ? "State Bank of India (SBI)" : "Bank of Baroda (BOB)")
           ),
           amount: numberValue(
             payment.amount ??
@@ -207,6 +250,36 @@ function PaymentsPage() {
       setRefreshing(false);
     }
   }, []);
+
+  async function addAdminPayment(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const amount = numberValue(formAmount);
+    if (!formCaseId || amount <= 0 || !formDate) {
+      setMessage("Case, valid amount aur payment date required hai.");
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    const table = formBank === "SBI" ? "sbi_payments" : "payments";
+    const { error } = await supabase.from(table).insert({
+      case_id: formCaseId,
+      executive_id: formExecutiveId || null,
+      amount,
+      payment_mode: formMode,
+      payment_date: formDate,
+      receipt_number: formReceipt.trim() || null,
+      reference_number: null,
+      remarks: formRemarks.trim() || "Payment added by admin",
+    });
+    if (error) {
+      setMessage(`Payment save error: ${error.message}`);
+    } else {
+      setMessage(`${formBank} payment successfully add ho gayi.`);
+      setFormAmount(""); setFormReceipt(""); setFormRemarks(""); setFormCaseId(""); setFormExecutiveId("");
+      await loadPayments(true);
+    }
+    setSaving(false);
+  }
 
   useEffect(() => {
     void loadPayments();
@@ -282,6 +355,9 @@ function PaymentsPage() {
         .payments-stat,.payments-panel{background:white;border:1px solid #e2e8f0;border-radius:17px}
         .payments-stat{padding:18px}.payments-stat span{display:block;color:#64748b;font-size:10px;font-weight:900}.payments-stat strong{display:block;margin-top:9px;font-size:24px}
         .payments-panel{margin-top:18px;padding:20px}
+        .payments-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px}
+        .payments-form label{display:grid;gap:6px;color:#475569;font-size:11px;font-weight:800}.payments-form .wide{grid-column:span 2}
+        .payments-save{height:44px;border:0;border-radius:11px;background:#075985;color:white;font-weight:900;cursor:pointer;align-self:end}
         .payments-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.payments-heading h2{margin:0}.payments-heading p{margin:5px 0 0;color:#64748b;font-size:12px}
         .payments-connected{padding:7px 11px;border-radius:999px;background:#ecfdf5;color:#047857;font-size:10px;font-weight:900}
         .payments-toolbar{display:grid;grid-template-columns:1fr 180px 140px;gap:10px;margin:16px 0}
@@ -296,8 +372,8 @@ function PaymentsPage() {
         .payments-badge{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:10px;font-weight:900}
         .recorded,.verified{background:#ecfdf5;color:#047857}.pending{background:#fffbeb;color:#b45309}.rejected{background:#fef2f2;color:#b91c1c}
         .payments-empty{padding:50px 20px;text-align:center;color:#64748b;font-weight:700}
-        @media(max-width:900px){.payments-stats{grid-template-columns:repeat(2,1fr)}.payments-toolbar{grid-template-columns:1fr}}
-        @media(max-width:600px){.payments-page{padding:14px}.payments-hero{align-items:flex-start;flex-direction:column}.payments-stats{grid-template-columns:1fr}}
+        @media(max-width:900px){.payments-stats{grid-template-columns:repeat(2,1fr)}.payments-toolbar{grid-template-columns:1fr}.payments-form{grid-template-columns:repeat(2,1fr)}}
+        @media(max-width:600px){.payments-page{padding:14px}.payments-hero{align-items:flex-start;flex-direction:column}.payments-stats,.payments-form{grid-template-columns:1fr}.payments-form .wide{grid-column:span 1}}
       `}</style>
 
       <section className="payments-hero">
@@ -340,6 +416,21 @@ function PaymentsPage() {
           <span>RECORDED ENTRIES</span>
           <strong>{recordedCount}</strong>
         </article>
+      </section>
+
+      <section className="payments-panel">
+        <div className="payments-heading"><div><h2>Add Payment by Admin</h2><p>Bank aur case select karke verified collection entry save karein.</p></div></div>
+        <form className="payments-form" onSubmit={addAdminPayment}>
+          <label>Bank<select className="payments-select" value={formBank} onChange={(e) => { setFormBank(e.target.value as PaymentBank); setFormCaseId(""); setFormExecutiveId(""); }}><option value="BOB">Bank of Baroda</option><option value="SBI">State Bank of India</option></select></label>
+          <label className="wide">Customer / Case<select className="payments-select" value={formCaseId} onChange={(e) => setFormCaseId(e.target.value)} required><option value="">Select case</option>{caseOptions.filter((row) => row.bank === formBank).map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
+          <label>Executive<select className="payments-select" value={formExecutiveId} onChange={(e) => setFormExecutiveId(e.target.value)}><option value="">Admin / No executive</option>{executiveOptions.filter((row) => row.bank === formBank).map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
+          <label>Amount<input className="payments-input" type="number" min="1" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required /></label>
+          <label>Payment Mode<select className="payments-select" value={formMode} onChange={(e) => setFormMode(e.target.value)}><option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Settlement</option></select></label>
+          <label>Payment Date<input className="payments-input" type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} required /></label>
+          <label>Receipt Number<input className="payments-input" value={formReceipt} onChange={(e) => setFormReceipt(e.target.value)} placeholder="Optional" /></label>
+          <label className="wide">Remarks<input className="payments-input" value={formRemarks} onChange={(e) => setFormRemarks(e.target.value)} placeholder="Optional admin note" /></label>
+          <button className="payments-save" type="submit" disabled={saving}>{saving ? "Saving..." : "Add Payment"}</button>
+        </form>
       </section>
 
       <section className="payments-panel">
