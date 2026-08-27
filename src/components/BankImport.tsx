@@ -137,6 +137,30 @@ const getFirstValue = (row: ExcelRow, headers: string[]): unknown => {
   return "";
 };
 
+const inferSbiBranch = (
+  fileName: string,
+  matrix: unknown[][],
+  headerRowIndex: number
+): string | null => {
+  const headingText = matrix
+    .slice(0, Math.max(headerRowIndex, 0))
+    .flat()
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
+  const fileStem = fileName.replace(/\.[^.]+$/, "");
+  const match = [fileStem, headingText]
+    .map((sourceText) =>
+      sourceText.match(/\bAVCA\s+(.+?)(?:\s+SBI\b|\s*\(\d+\)|$)/i)
+    )
+    .find(Boolean);
+  const branch = match?.[1]
+    ?.replace(/[^a-z0-9 ]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return branch ? branch.toUpperCase() : null;
+};
+
 function isActiveExecutive(executive: Executive): boolean {
   const status = String(executive.status ?? "").trim().toLowerCase();
   return status === "active" || status === "approved";
@@ -305,6 +329,10 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
 
       if (rows.length === 0) throw new Error("Excel file khali hai.");
 
+      const inferredSbiBranch = selectedBank === "SBI"
+        ? inferSbiBranch(file.name, matrix, headerRowIndex)
+        : null;
+
       const actualHeaders = Object.keys(rows[0]).map(normalizeHeader);
       const requiredHeaders = selectedBank === "SBI" ? ["ACCOUNT", "CUST NAME"] : [...REQUIRED_HEADERS];
       const missingRequiredHeaders = requiredHeaders.filter(
@@ -338,7 +366,10 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
 
         const alpha = textValue(getExactValue(row, "Alpha"));
         const village = textValue(getFirstValue(row, ["VIILAGE", "VILLAGE"]));
-        const branch = textValue(getFirstValue(row, ["Branch", "VIILAGE", "VILLAGE"]));
+        const explicitBranch = textValue(getExactValue(row, "Branch"));
+        const branch = selectedBank === "SBI"
+          ? explicitBranch || inferredSbiBranch
+          : explicitBranch;
         const address = textValue(getFirstValue(row, ["ADDRESS", "VIILAGE", "VILLAGE"]));
         const mobileNumber = textValue(getExactValue(row, "MOBILE NO"));
 
