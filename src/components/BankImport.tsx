@@ -413,10 +413,13 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
         newCases: 0,
         alreadyAssigned:
           existingAssignedByArea[areaKey] || 0,
-        executives: executives.filter(
-          (executive) =>
-            assignmentAreaKey(executive.area) === areaKey
-        ),
+        executives:
+          selectedBank === "SBI"
+            ? executives
+            : executives.filter(
+                (executive) =>
+                  assignmentAreaKey(executive.area) === areaKey
+              ),
       };
 
       current.total += 1;
@@ -444,7 +447,7 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
     return Array.from(map.values()).sort(
       (a, b) => b.total + b.alreadyAssigned - (a.total + a.alreadyAssigned)
     );
-  }, [records, executives, existingAssignedByArea]);
+  }, [records, executives, existingAssignedByArea, selectedBank]);
 
   const autoAssignedPreview = marketSummaries.reduce(
     (total, summary) =>
@@ -481,12 +484,16 @@ function BankImport({ directExecutiveId, directExecutiveName, onClearDirectExecu
             assignmentAreaKey(executive.area) ===
             assignmentAreaKey(record.resolvedArea)
         );
+        const automaticAssignmentPool =
+          selectedBank === "SBI" && matchingExecutives.length === 0
+            ? executives
+            : matchingExecutives;
 
         const selectedExecutive = executives.find(
           (executive) => executive.id === directExecutiveId
         ) ?? executives.find(
           (executive) => executive.id === manualExecutiveId
-        ) ?? [...matchingExecutives].sort((a, b) => {
+        ) ?? [...automaticAssignmentPool].sort((a, b) => {
           const aLoad = workload.get(a.id) || 0;
           const bLoad = workload.get(b.id) || 0;
           return aLoad !== bLoad
