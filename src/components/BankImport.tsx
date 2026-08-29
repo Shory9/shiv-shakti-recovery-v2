@@ -523,9 +523,13 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
             : matchingExecutives;
 
         const selectedExecutive = executives.find(
-          (executive) => executive.id === directExecutiveId
+          (executive) =>
+            directExecutiveId &&
+            String(executive.id) === String(directExecutiveId)
         ) ?? executives.find(
-          (executive) => executive.id === manualExecutiveId
+          (executive) =>
+            manualExecutiveId &&
+            String(executive.id) === String(manualExecutiveId)
         ) ?? [...automaticAssignmentPool].sort((a, b) => {
           const aLoad = workload.get(a.id) || 0;
           const bLoad = workload.get(b.id) || 0;
