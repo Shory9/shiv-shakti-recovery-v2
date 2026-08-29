@@ -21,7 +21,14 @@ type PaymentRecord = {
 };
 
 type PaymentBank = "BOB" | "SBI";
-type AdminCaseOption = { id: string; bank: PaymentBank; label: string; branch: string };
+type AdminCaseOption = {
+  id: string;
+  bank: PaymentBank;
+  accountNumber: string;
+  customerName: string;
+  label: string;
+  branch: string;
+};
 type AdminExecutiveOption = { id: string; bank: PaymentBank; label: string };
 
 const PAGE_SIZE = 1000;
@@ -42,6 +49,10 @@ function numberValue(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeSearchValue(value: unknown): string {
+  return text(value).toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function normalizeStatus(value: unknown): Exclude<PaymentStatus, "All"> {
@@ -118,9 +129,30 @@ function PaymentsPage() {
     return caseOptions.filter(
       (row) =>
         row.bank === formBank &&
-        (!query || row.label.toLowerCase().includes(query))
+        (!query ||
+          row.accountNumber.toLowerCase().includes(query) ||
+          row.customerName.toLowerCase().includes(query) ||
+          row.label.toLowerCase().includes(query))
     );
   }, [caseOptions, formBank, formCaseSearch]);
+
+  const selectedAdminCase = useMemo(
+    () => caseOptions.find((row) => row.bank === formBank && row.id === formCaseId),
+    [caseOptions, formBank, formCaseId]
+  );
+
+  function updateCaseSearch(value: string) {
+    setFormCaseSearch(value);
+    const normalized = normalizeSearchValue(value);
+    const exactMatch = normalized
+      ? caseOptions.find(
+          (row) =>
+            row.bank === formBank &&
+            normalizeSearchValue(row.accountNumber) === normalized
+        )
+      : undefined;
+    setFormCaseId(exactMatch?.id ?? "");
+  }
 
   const loadPayments = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -162,12 +194,18 @@ function PaymentsPage() {
         if (id) profilesById.set(`${first(row, ["__bank"], "BOB")}:${id}`, row);
       });
 
-      setCaseOptions(caseRows.map((row) => ({
-        id: first(row, ["id"]),
-        bank: first(row, ["__bank"], "BOB") as PaymentBank,
-        branch: first(row, ["branch", "village", "area"]),
-        label: `${first(row, ["account_number"], "-")} - ${first(row, ["account_name"], "Unknown")}`,
-      })).filter((row) => row.id));
+      setCaseOptions(caseRows.map((row) => {
+        const accountNumber = first(row, ["account_number", "loan_account_number", "account_no", "case_number"], "-");
+        const customerName = first(row, ["account_name", "customer_name", "name"], "Unknown");
+        return {
+          id: first(row, ["id", "case_id"]),
+          bank: first(row, ["__bank"], "BOB") as PaymentBank,
+          accountNumber,
+          customerName,
+          branch: first(row, ["branch", "branch_name", "village", "area", "assigned_area"]),
+          label: `${accountNumber} - ${customerName}`,
+        };
+      }).filter((row) => row.id));
       setExecutiveOptions(profileRows.map((row) => ({
         id: first(row, ["id"]),
         bank: first(row, ["__bank"], "BOB") as PaymentBank,
@@ -275,9 +313,7 @@ function PaymentsPage() {
   async function addAdminPayment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const amount = numberValue(formAmount);
-    const selectedCase = caseOptions.find(
-      (row) => row.bank === formBank && row.id === formCaseId
-    );
+    const selectedCase = selectedAdminCase;
     if (!formCaseId || amount <= 0 || !formDate || !selectedCase?.branch) {
       setMessage("Case, branch, valid amount aur payment date required hai.");
       return;
@@ -408,6 +444,8 @@ function PaymentsPage() {
         .payments-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px}
         .payments-form label{display:grid;gap:6px;color:#475569;font-size:11px;font-weight:800}.payments-form .wide{grid-column:span 2}
         .payments-save{height:44px;border:0;border-radius:11px;background:#075985;color:white;font-weight:900;cursor:pointer;align-self:end}
+        .payments-save:disabled{cursor:not-allowed;opacity:.55}
+        .payments-case-found{grid-column:span 4;padding:12px 14px;border:1px solid #bbf7d0;border-radius:11px;background:#f0fdf4;color:#166534;font-size:12px;font-weight:800}
         .payments-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.payments-heading h2{margin:0}.payments-heading p{margin:5px 0 0;color:#64748b;font-size:12px}
         .payments-connected{padding:7px 11px;border-radius:999px;background:#ecfdf5;color:#047857;font-size:10px;font-weight:900}
         .payments-toolbar{display:grid;grid-template-columns:1fr 180px 140px;gap:10px;margin:16px 0}
@@ -423,8 +461,8 @@ function PaymentsPage() {
         .payments-delete{min-height:38px;padding:0 12px;border:1px solid #fecaca;border-radius:9px;background:#fff1f2;color:#b91c1c;font-weight:900;cursor:pointer}.payments-delete:disabled{cursor:not-allowed;opacity:.55}
         .recorded,.verified{background:#ecfdf5;color:#047857}.pending{background:#fffbeb;color:#b45309}.rejected{background:#fef2f2;color:#b91c1c}
         .payments-empty{padding:50px 20px;text-align:center;color:#64748b;font-weight:700}
-        @media(max-width:900px){.payments-stats{grid-template-columns:repeat(2,1fr)}.payments-toolbar{grid-template-columns:1fr}.payments-form{grid-template-columns:repeat(2,1fr)}}
-        @media(max-width:600px){.payments-page{padding:14px}.payments-hero{align-items:flex-start;flex-direction:column}.payments-stats,.payments-form{grid-template-columns:1fr}.payments-form .wide{grid-column:span 1}}
+        @media(max-width:900px){.payments-stats{grid-template-columns:repeat(2,1fr)}.payments-toolbar{grid-template-columns:1fr}.payments-form{grid-template-columns:repeat(2,1fr)}.payments-case-found{grid-column:span 2}}
+        @media(max-width:600px){.payments-page{padding:14px}.payments-hero{align-items:flex-start;flex-direction:column}.payments-stats,.payments-form{grid-template-columns:1fr}.payments-form .wide,.payments-case-found{grid-column:span 1}}
       `}</style>
 
       <section className="payments-hero">
@@ -473,16 +511,17 @@ function PaymentsPage() {
         <div className="payments-heading"><div><h2>Add Payment by Admin</h2><p>Bank aur case select karke verified collection entry save karein.</p></div></div>
         <form className="payments-form" onSubmit={addAdminPayment}>
           <label>Bank<select className="payments-select" value={formBank} onChange={(e) => { setFormBank(e.target.value as PaymentBank); setFormCaseId(""); setFormCaseSearch(""); setFormExecutiveId(""); }}><option value="BOB">Bank of Baroda</option><option value="SBI">State Bank of India</option></select></label>
-          <label className="wide">Search Customer / Account<input className="payments-input" type="search" value={formCaseSearch} onChange={(e) => { setFormCaseSearch(e.target.value); setFormCaseId(""); }} placeholder="Account number ya customer name type karein" /></label>
+          <label className="wide">Search Customer / Account<input className="payments-input" type="search" value={formCaseSearch} onChange={(e) => updateCaseSearch(e.target.value)} placeholder="Account number ya customer name type karein" /></label>
           <label className="wide">Customer / Case<select className="payments-select" value={formCaseId} onChange={(e) => setFormCaseId(e.target.value)} required><option value="">{formCaseSearch && filteredCaseOptions.length === 0 ? "No matching case" : "Select case"}</option>{filteredCaseOptions.map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
-          <label>Branch<input className="payments-input" value={caseOptions.find((row) => row.bank === formBank && row.id === formCaseId)?.branch ?? ""} placeholder="Case select karne par branch aayegi" readOnly required /></label>
+          {selectedAdminCase && <div className="payments-case-found">✓ Customer: {selectedAdminCase.customerName} &nbsp;|&nbsp; A/C: {selectedAdminCase.accountNumber} &nbsp;|&nbsp; Branch: {selectedAdminCase.branch || "Branch missing"}</div>}
+          <label>Branch<input className="payments-input" value={selectedAdminCase?.branch ?? ""} placeholder="Case select karne par branch aayegi" readOnly required /></label>
           <label>Executive<select className="payments-select" value={formExecutiveId} onChange={(e) => setFormExecutiveId(e.target.value)}><option value="">Admin / No executive</option>{executiveOptions.filter((row) => row.bank === formBank).map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
           <label>Amount<input className="payments-input" type="number" min="1" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required /></label>
           <label>Payment Mode<select className="payments-select" value={formMode} onChange={(e) => setFormMode(e.target.value)}><option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Settlement</option></select></label>
           <label>Payment Date<input className="payments-input" type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} required /></label>
           <label>Receipt Number<input className="payments-input" value={formReceipt} onChange={(e) => setFormReceipt(e.target.value)} placeholder="Optional" /></label>
           <label className="wide">Remarks<input className="payments-input" value={formRemarks} onChange={(e) => setFormRemarks(e.target.value)} placeholder="Optional admin note" /></label>
-          <button className="payments-save" type="submit" disabled={saving}>{saving ? "Saving..." : "Add Payment"}</button>
+          <button className="payments-save" type="submit" disabled={saving || !selectedAdminCase}>{saving ? "Saving..." : "Add Payment"}</button>
         </form>
       </section>
 
