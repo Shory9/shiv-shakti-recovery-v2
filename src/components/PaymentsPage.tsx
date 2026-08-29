@@ -117,7 +117,7 @@ function PaymentsPage() {
   const [formCaseSearch, setFormCaseSearch] = useState("");
   const [formExecutiveId, setFormExecutiveId] = useState("");
   const [formAmount, setFormAmount] = useState("");
-  const [formMode, setFormMode] = useState("Cash");
+  const [formMode, setFormMode] = useState("Settlement");
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [formReceipt, setFormReceipt] = useState("");
   const [formRemarks, setFormRemarks] = useState("");
@@ -517,7 +517,7 @@ function PaymentsPage() {
           <label>Branch<input className="payments-input" value={selectedAdminCase?.branch ?? ""} placeholder="Case select karne par branch aayegi" readOnly required /></label>
           <label>Executive<select className="payments-select" value={formExecutiveId} onChange={(e) => setFormExecutiveId(e.target.value)}><option value="">Admin / No executive</option>{executiveOptions.filter((row) => row.bank === formBank).map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
           <label>Amount<input className="payments-input" type="number" min="1" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required /></label>
-          <label>Payment Mode<select className="payments-select" value={formMode} onChange={(e) => setFormMode(e.target.value)}><option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Settlement</option></select></label>
+          <label>Payment Mode<select className="payments-select" value={formMode} onChange={(e) => setFormMode(e.target.value)}><option>Settlement</option><option>Palti Ki Gayi</option></select></label>
           <label>Payment Date<input className="payments-input" type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} required /></label>
           <label>Receipt Number<input className="payments-input" value={formReceipt} onChange={(e) => setFormReceipt(e.target.value)} placeholder="Optional" /></label>
           <label className="wide">Remarks<input className="payments-input" value={formRemarks} onChange={(e) => setFormRemarks(e.target.value)} placeholder="Optional admin note" /></label>
