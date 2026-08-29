@@ -66,6 +66,14 @@ type MarketSummary = {
 // NPA export or a smaller allocation sheet. Only these two fields are needed
 // to create a valid case; every other supported field is imported when present.
 const REQUIRED_HEADERS = ["A/C No", "A/C Name"] as const;
+const SBI_ACCOUNT_HEADERS = ["ACCOUNT", "ACCOUNT NO", "ACCOUNT_NO"] as const;
+const SBI_CUSTOMER_HEADERS = [
+  "CUST NAME",
+  "CUSTNAME",
+  "CUSTOMER NAME",
+  "CUSTOMER_NAME",
+  "NAME",
+] as const;
 
 const normalizeHeader = (value: unknown): string =>
   String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -149,15 +157,19 @@ const inferSbiBranch = (
     .filter(Boolean)
     .join(" ");
   const fileStem = fileName.replace(/\.[^.]+$/, "");
-  const match = [fileStem, headingText]
+  const branch = [fileStem, headingText]
     .map((sourceText) =>
-      sourceText.match(/\bAVCA\s+(.+?)(?:\s+SBI\b|\s*\(\d+\)|$)/i)
+      sourceText
+        .replace(/\bAVCA\b/gi, " ")
+        .replace(/\bSBI\b/gi, " ")
+        .replace(/\bNPA\b/gi, " ")
+        .replace(/\bLIST\b/gi, " ")
+        .replace(/\b\d+\b/g, " ")
+        .replace(/[^a-z0-9 ]/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim()
     )
     .find(Boolean);
-  const branch = match?.[1]
-    ?.replace(/[^a-z0-9 ]/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
   return branch ? branch.toUpperCase() : null;
 };
 
@@ -314,7 +326,7 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
       const worksheet = workbook.Sheets[sheetName];
       const matrix = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: "", raw: false });
       const requiredAliases = selectedBank === "SBI"
-        ? [["ACCOUNT"], ["CUST NAME"]]
+        ? [SBI_ACCOUNT_HEADERS, SBI_CUSTOMER_HEADERS]
         : [["A/C No"], ["A/C Name"]];
       const headerRowIndex = matrix.slice(0, 20).findIndex((row) => {
         const headers = row.map(normalizeHeader);
@@ -336,10 +348,9 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
         : null;
 
       const actualHeaders = Object.keys(rows[0]).map(normalizeHeader);
-      const requiredHeaders = selectedBank === "SBI" ? ["ACCOUNT", "CUST NAME"] : [...REQUIRED_HEADERS];
-      const missingRequiredHeaders = requiredHeaders.filter(
-        (header) => !actualHeaders.includes(normalizeHeader(header))
-      );
+      const missingRequiredHeaders = requiredAliases
+        .filter((aliases) => !aliases.some((header) => actualHeaders.includes(normalizeHeader(header))))
+        .map((aliases) => aliases[0]);
 
       if (missingRequiredHeaders.length > 0) {
         throw new Error(`Ye zaroori columns nahi mili: ${missingRequiredHeaders.join(", ")}`);
@@ -352,8 +363,12 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
       let missingMobile = 0;
 
       rows.forEach((row) => {
-        const accountNumber = String(getFirstValue(row, ["A/C No", "ACCOUNT"]) ?? "").trim();
-        const accountName = String(getFirstValue(row, ["A/C Name", "CUST NAME"]) ?? "").trim();
+        const accountNumber = String(
+          getFirstValue(row, ["A/C No", ...SBI_ACCOUNT_HEADERS]) ?? ""
+        ).trim();
+        const accountName = String(
+          getFirstValue(row, ["A/C Name", ...SBI_CUSTOMER_HEADERS]) ?? ""
+        ).trim();
         const normalizedAccount = normalizeAccount(accountNumber);
 
         if (!normalizedAccount || !accountName) {
