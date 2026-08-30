@@ -65,7 +65,6 @@ type MarketSummary = {
 // Allocation files supplied by the bank can be either the complete 22-column
 // NPA export or a smaller allocation sheet. Only these two fields are needed
 // to create a valid case; every other supported field is imported when present.
-const REQUIRED_HEADERS = ["A/C No", "A/C Name"] as const;
 const SBI_ACCOUNT_HEADERS = ["ACCOUNT", "ACCOUNT NO", "ACCOUNT_NO"] as const;
 const SBI_CUSTOMER_HEADERS = [
   "CUST NAME",
