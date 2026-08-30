@@ -194,6 +194,27 @@ function assignmentAreaKey(value: unknown): string {
   return aliases[normalized] || normalized;
 }
 
+const SBI_EXECUTIVE_CODE_BY_AREA: Record<string, string> = {
+  MALHARGARH: "SBI002",
+  MALLARGARH: "SBI002",
+  PIPLIYAMANDI: "SBI002",
+  REVLIDEVLI: "SBI003",
+  JIRAN: "SBI004",
+  MANASA: "SBI005",
+};
+
+function findApprovedSbiExecutive(
+  area: unknown,
+  executives: Executive[]
+): Executive | undefined {
+  const executiveCode = SBI_EXECUTIVE_CODE_BY_AREA[assignmentAreaKey(area)];
+  if (!executiveCode) return undefined;
+
+  return executives.find(
+    (executive) => normalizeText(executive.executive_code) === executiveCode
+  );
+}
+
 type BankImportProps = {
   directExecutiveId?: string | null;
   directExecutiveName?: string | null;
@@ -392,12 +413,14 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
         if (!address) missingAddress += 1;
         if (!mobileNumber) missingMobile += 1;
 
-        const resolvedArea = resolveCaseArea(
-          alpha || "",
-          branch || "",
-          address || "",
-          accountNumber
-        );
+        const resolvedArea = selectedBank === "SBI" && branch
+          ? branch
+          : resolveCaseArea(
+              alpha || "",
+              branch || "",
+              address || "",
+              accountNumber
+            );
 
         uniqueCases.set(normalizedAccount, {
           sn: integerValue(getExactValue(row, "SN")),
@@ -452,8 +475,13 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
     const map = new Map<string, MarketSummary>();
 
     records.forEach((record) => {
-      const area = record.resolvedArea || record.branch || "Unmatched Area";
+      const area = selectedBank === "SBI"
+        ? record.branch || record.resolvedArea || "Unmatched Area"
+        : record.resolvedArea || record.branch || "Unmatched Area";
       const areaKey = assignmentAreaKey(area);
+      const approvedSbiExecutive = selectedBank === "SBI"
+        ? findApprovedSbiExecutive(area, executives)
+        : undefined;
       const current = map.get(areaKey) ?? {
         area,
         total: 0,
@@ -462,7 +490,9 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
           existingAssignedByArea[areaKey] || 0,
         executives:
           selectedBank === "SBI"
-            ? executives
+            ? approvedSbiExecutive
+              ? [approvedSbiExecutive]
+              : []
             : executives.filter(
                 (executive) =>
                   assignmentAreaKey(executive.area) === areaKey
@@ -500,7 +530,9 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
     (total, summary) =>
       total +
       (summary.executives.length > 0 ||
-      Boolean(manualExecutiveByArea[assignmentAreaKey(summary.area)])
+      (selectedBank !== "SBI" &&
+        (Boolean(directExecutiveId) ||
+          Boolean(manualExecutiveByArea[assignmentAreaKey(summary.area)])))
         ? summary.newCases
         : 0),
     0
@@ -524,19 +556,26 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
       });
 
       const payload = newRecords.map((record) => {
-        const areaKey = assignmentAreaKey(record.resolvedArea || record.branch || "Unmatched Area");
+        const assignmentArea = selectedBank === "SBI"
+          ? record.branch || record.resolvedArea || "Unmatched Area"
+          : record.resolvedArea || record.branch || "Unmatched Area";
+        const areaKey = assignmentAreaKey(assignmentArea);
         const manualExecutiveId = manualExecutiveByArea[areaKey];
         const matchingExecutives = executives.filter(
           (executive) =>
             assignmentAreaKey(executive.area) ===
             assignmentAreaKey(record.resolvedArea)
         );
-        const automaticAssignmentPool =
-          selectedBank === "SBI" && matchingExecutives.length === 0
-            ? executives
-            : matchingExecutives;
+        const approvedSbiExecutive = selectedBank === "SBI"
+          ? findApprovedSbiExecutive(assignmentArea, executives)
+          : undefined;
+        const automaticAssignmentPool = selectedBank === "SBI"
+          ? approvedSbiExecutive
+            ? [approvedSbiExecutive]
+            : []
+          : matchingExecutives;
 
-        const selectedExecutive = executives.find(
+        const requestedExecutive = executives.find(
           (executive) =>
             directExecutiveId &&
             String(executive.id) === String(directExecutiveId)
@@ -553,6 +592,9 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
                 String(b.executive_code || "")
               );
         })[0];
+        const selectedExecutive = selectedBank === "SBI"
+          ? approvedSbiExecutive
+          : requestedExecutive;
 
         if (selectedExecutive) {
           workload.set(
