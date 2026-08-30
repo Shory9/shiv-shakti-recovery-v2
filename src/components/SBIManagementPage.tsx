@@ -29,6 +29,7 @@ export default function SBIManagementPage({ onDirectImport }: SBIManagementPageP
   const [cases, setCases] = useState<SbiCase[]>([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [workingId, setWorkingId] = useState<string | null>(null);
 
   async function loadData() {
     setLoading(true);
@@ -57,6 +58,38 @@ export default function SBIManagementPage({ onDirectImport }: SBIManagementPageP
     if (error) return setMessage(error.message);
     setExecutives((rows) => rows.map((row) => row.id === executive.id ? { ...row, status: "approved" } : row));
     setMessage(`${executive.executive_code} approve ho gaya.`);
+  }
+
+  async function deleteExecutive(executive: SbiExecutive) {
+    const assignedCases = cases.filter(
+      (row) => row.assigned_executive_id === executive.id
+    ).length;
+
+    if (assignedCases > 0) {
+      setMessage(
+        `${executive.executive_code} ke ${assignedCases} cases assigned hain. Pehle cases reassign ya unassign karein.`
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `${executive.executive_code} - ${executive.full_name} ko permanently delete karna hai?`
+    );
+    if (!confirmed) return;
+
+    setWorkingId(executive.id);
+    const { error } = await supabase
+      .from("sbi_executives")
+      .delete()
+      .eq("id", executive.id);
+
+    if (error) {
+      setMessage(`Delete error: ${error.message}`);
+    } else {
+      setExecutives((rows) => rows.filter((row) => row.id !== executive.id));
+      setMessage(`${executive.executive_code} delete ho gaya.`);
+    }
+    setWorkingId(null);
   }
 
   async function assignCase(caseId: string, executiveId: string) {
@@ -120,11 +153,13 @@ export default function SBIManagementPage({ onDirectImport }: SBIManagementPageP
               <thead><tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}><th style={{ padding: 10 }}>Code</th><th>Name</th><th>Mobile</th><th>Assigned Area</th><th>Vehicle</th><th>Status</th><th>Cases</th><th style={{ textAlign: "right", padding: 10 }}>Actions</th></tr></thead>
               <tbody>{executives.map((row) => {
                 const approved = ["approved", "active", "online"].includes(row.status.toLowerCase());
+                const isWorking = workingId === row.id;
                 return <tr key={row.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
                 <td style={{ padding: 10, fontWeight: 800 }}>{row.executive_code}</td><td>{row.full_name}</td><td>{row.mobile || "-"}</td><td style={{ color: "#0369a1", fontWeight: 700 }}>{row.area || "-"}</td><td style={{ textTransform: "capitalize" }}>{row.vehicle_type || "-"}</td><td><span style={statusStyle(row.status)}>{row.status}</span></td><td style={{ fontWeight: 800 }}>{assignedCountByExecutive.get(row.id) || 0}</td>
                 <td style={{ textAlign: "right", padding: 10 }}><div style={{ display: "inline-flex", gap: 7 }}>
-                  <button type="button" disabled={!approved} onClick={() => onDirectImport?.(row)} style={{ padding: "7px 11px", border: 0, borderRadius: 6, background: "#2563eb", color: "white", fontWeight: 800, cursor: approved ? "pointer" : "not-allowed", opacity: approved ? 1 : .5 }}>Upload Bank File</button>
-                  {!approved && <button type="button" onClick={() => void approveExecutive(row)} style={{ padding: "7px 11px", border: 0, borderRadius: 6, background: "#16a34a", color: "white", fontWeight: 800, cursor: "pointer" }}>Approve</button>}
+                  <button type="button" disabled={!approved || isWorking} onClick={() => onDirectImport?.(row)} style={{ padding: "7px 11px", border: 0, borderRadius: 6, background: "#2563eb", color: "white", fontWeight: 800, cursor: approved && !isWorking ? "pointer" : "not-allowed", opacity: approved && !isWorking ? 1 : .5 }}>Upload Bank File</button>
+                  {!approved && <button type="button" disabled={isWorking} onClick={() => void approveExecutive(row)} style={{ padding: "7px 11px", border: 0, borderRadius: 6, background: "#16a34a", color: "white", fontWeight: 800, cursor: isWorking ? "not-allowed" : "pointer", opacity: isWorking ? .5 : 1 }}>Approve</button>}
+                  <button type="button" disabled={isWorking} onClick={() => void deleteExecutive(row)} style={{ padding: "7px 11px", border: 0, borderRadius: 6, background: "#dc2626", color: "white", fontWeight: 800, cursor: isWorking ? "not-allowed" : "pointer", opacity: isWorking ? .5 : 1 }}>{isWorking ? "Wait..." : "Delete"}</button>
                 </div></td>
               </tr>})}</tbody>
             </table></div>
