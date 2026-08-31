@@ -45,6 +45,33 @@ function first(row: RawRow, keys: string[], fallback = ""): string {
   return fallback;
 }
 
+function resolveCaseBranch(row: RawRow): string {
+  const directBranch = first(row, [
+    "branch",
+    "branch_name",
+    "village",
+    "area",
+    "assigned_area",
+  ]);
+  if (directBranch) return directBranch;
+
+  const remarks = text(row.remarks);
+  const remarkLabels = ["Branch", "Resolved Area"];
+
+  for (const label of remarkLabels) {
+    const match = remarks.match(new RegExp(`${label}:\\s*([^|]+)`, "i"));
+    const value = text(match?.[1]);
+    if (
+      value &&
+      !["not available", "unmatched", "unassigned"].includes(value.toLowerCase())
+    ) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
 function numberValue(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
@@ -202,7 +229,7 @@ function PaymentsPage() {
           bank: first(row, ["__bank"], "BOB") as PaymentBank,
           accountNumber,
           customerName,
-          branch: first(row, ["branch", "branch_name", "village", "area", "assigned_area"]),
+          branch: resolveCaseBranch(row),
           label: `${accountNumber} - ${customerName}`,
         };
       }).filter((row) => row.id));
@@ -251,7 +278,7 @@ function PaymentsPage() {
           branch: first(
             payment,
             ["payment_branch", "branch"],
-            first(caseRow, ["branch", "village", "area"], "-")
+            resolveCaseBranch(caseRow) || "-"
           ),
           executiveName: first(
             payment,
