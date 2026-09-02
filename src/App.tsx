@@ -24,13 +24,14 @@ function App() {
   const isNativeApp = Capacitor.isNativePlatform();
   const isSbiBuild = import.meta.env.VITE_MOBILE_BANK === "SBI";
   const isSbiPreview = window.location.pathname === "/sbi-preview";
+  const isBobPreview = window.location.pathname === "/bob-preview";
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeMenu, setActiveMenu] = useState<Menu>("Dashboard");
   const [bankImportExecutive, setBankImportExecutive] = useState<Executive | null>(null);
   const [sbiImportExecutive, setSbiImportExecutive] = useState<SbiExecutive | null>(null);
 
-  if (isNativeApp || isSbiPreview) {
+  if (isNativeApp || isSbiPreview || isBobPreview) {
     return <MobileExecutiveApp bankCode={isSbiBuild || isSbiPreview ? "SBI" : "BOB"} />;
   }
 

@@ -267,6 +267,7 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
   const [caseSearch, setCaseSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const [loginCode, setLoginCode] = useState("");
   const [loginPhone, setLoginPhone] = useState("");
@@ -943,17 +944,85 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
   }, [cases, caseSearch]);
 
   return (
-    <main style={styles.page}>
+    <main style={{ ...styles.page, ...(isSbi ? styles.sbiPage : styles.bobPage) }}>
       <div style={styles.shell}>
-        <header style={styles.header}>
-          <img src="/logo.png" alt="Shiv Shakti" style={styles.logo} />
-          <div>
-            <strong style={{ fontSize: 18 }}>Shiv Shakti Recovery — {isSbi ? "SBI" : "BOB"}</strong>
-            <div style={{ fontSize: 12, opacity: 0.75 }}>
-              Secure Field Executive App
+        <header style={{ ...styles.header, ...(isSbi ? styles.sbiHeader : styles.bobHeader) }}>
+          {executive && !["login", "register", "pending"].includes(screen) && (
+            <button
+              type="button"
+              style={{ ...styles.menuButton, ...(!isSbi ? styles.bobMenuButton : {}) }}
+              aria-label={`${isSbi ? "SBI" : "BOB"} navigation menu kholen`}
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen(true)}
+            >
+              <span aria-hidden="true">☰</span>
+            </button>
+          )}
+          <div style={styles.brandWrap}>
+            <img src="/logo.png" alt="Shiv Shakti Recovery" style={styles.logo} />
+            <div>
+              <strong style={styles.brandTitle}>Shiv Shakti Recovery</strong>
+              <div style={styles.brandSubtitle}>Secure Field Executive App</div>
             </div>
           </div>
+          <span style={{ ...styles.bankBadge, ...(isSbi ? styles.sbiBadge : styles.bobBadge) }}>
+            {isSbi ? "SBI" : "BOB"}
+          </span>
         </header>
+
+        {menuOpen && executive && (
+          <div style={styles.drawerLayer} role="presentation" onClick={() => setMenuOpen(false)}>
+            <aside
+              style={styles.drawer}
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${isSbi ? "SBI" : "BOB"} Executive navigation`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div style={{ ...styles.drawerHero, ...(!isSbi ? styles.bobDrawerHero : {}) }}>
+                <div style={styles.drawerTopLine}>
+                  <span style={styles.drawerBankMark}>{isSbi ? "SBI" : "BOB"}</span>
+                  <button type="button" style={styles.drawerClose} aria-label="Menu band karein" onClick={() => setMenuOpen(false)}>×</button>
+                </div>
+                <strong style={styles.drawerName}>{executiveName(executive)}</strong>
+                <span style={styles.drawerMeta}>{getExecutiveCode(executive)} · {cleanText(executive.area) || "Assigned Area"}</span>
+              </div>
+
+              <nav style={styles.drawerNav} aria-label={`${isSbi ? "SBI" : "BOB"} app sections`}>
+                {([[
+                  "dashboard", "▤", "Assigned Cases", "Customer recovery cases"
+                ], [
+                  "gps", "⌖", "Live GPS", "Location sync status"
+                ], [
+                  "payments", "₹", "Payments", "Collections and history"
+                ], [
+                  "profile", "●", "My Profile", "Executive details"
+                ]] as const).map(([target, icon, label, hint]) => (
+                  <button
+                    key={target}
+                    type="button"
+                    style={{
+                      ...styles.drawerItem,
+                      ...(screen === target ? (isSbi ? styles.drawerItemActive : styles.bobDrawerItemActive) : {}),
+                    }}
+                    aria-current={screen === target ? "page" : undefined}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setScreen(target);
+                      if (target === "payments") void loadPayments();
+                    }}
+                  >
+                    <span style={{ ...styles.drawerItemIcon, ...(!isSbi ? styles.bobDrawerItemIcon : {}) }} aria-hidden="true">{icon}</span>
+                    <span style={styles.drawerItemText}><strong>{label}</strong><small>{hint}</small></span>
+                    <span aria-hidden="true">›</span>
+                  </button>
+                ))}
+              </nav>
+
+              <button type="button" style={styles.drawerLogout} onClick={logout}>Sign out</button>
+            </aside>
+          </div>
+        )}
 
         <style>{`
           @keyframes executiveNoticeScroll {
@@ -1087,9 +1156,9 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
 
         {screen === "dashboard" && executive && (
           <div style={{ paddingBottom: 80 }}>
-            <section style={styles.profileCard}>
+            <section style={{ ...styles.profileCard, ...(isSbi ? styles.sbiProfileCard : styles.bobProfileCard) }}>
               <div>
-                <div style={{ fontSize: 12, opacity: 0.75 }}>Welcome</div>
+                <div style={styles.profileEyebrow}>{isSbi ? "SBI" : "BOB"} FIELD DESK</div>
                 <h1 style={{ margin: "4px 0" }}>
                   {executiveName(executive)}
                 </h1>
@@ -1104,15 +1173,15 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
 
             <section style={styles.statsGrid}>
               <article style={styles.statCard}>
-                <span>Total Cases</span>
+                <span style={styles.statLabel}>Total Cases</span>
                 <strong>{cases.length}</strong>
               </article>
               <article style={styles.statCard}>
-                <span>Pending</span>
+                <span style={styles.statLabel}>Pending</span>
                 <strong>{pendingCount}</strong>
               </article>
               <article style={styles.statCard}>
-                <span>Completed</span>
+                <span style={styles.statLabel}>Completed</span>
                 <strong>{completedCount}</strong>
               </article>
             </section>
@@ -1367,7 +1436,7 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
               Back to Cases
             </button>
 
-            <section style={styles.detailHero}>
+            <section style={{ ...styles.detailHero, ...(isSbi ? styles.sbiDetailHero : styles.bobDetailHero) }}>
               <div>
                 <div style={styles.detailKicker}>Case Details</div>
                 <h1 style={styles.detailTitle}>{customerName(selectedCase)}</h1>
@@ -1496,53 +1565,6 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
           </div>
         )}
 
-        {executive &&
-          screen !== "login" &&
-          screen !== "register" &&
-          screen !== "pending" && (
-            <nav style={styles.bottomNav}>
-              <button
-                style={{
-                  ...styles.navItem,
-                  color: screen === "dashboard" ? "#b91c1c" : "#7f1d1d",
-                }}
-                onClick={() => setScreen("dashboard")}
-              >
-                <span>Cases</span>
-              </button>
-              <button
-                style={{
-                  ...styles.navItem,
-                  color: screen === "gps" ? "#b91c1c" : "#7f1d1d",
-                }}
-                onClick={() => setScreen("gps")}
-              >
-                <span>GPS Live</span>
-              </button>
-              <button
-                style={{
-                  ...styles.navItem,
-                  color: screen === "payments" ? "#b91c1c" : "#7f1d1d",
-                }}
-                onClick={() => {
-                  localStorage.setItem(screenStorageKey, "payments");
-                  setScreen("payments");
-                  void loadPayments();
-                }}
-              >
-                <span>Payments</span>
-              </button>
-              <button
-                style={{
-                  ...styles.navItem,
-                  color: screen === "profile" ? "#b91c1c" : "#7f1d1d",
-                }}
-                onClick={() => setScreen("profile")}
-              >
-                <span>Profile</span>
-              </button>
-            </nav>
-          )}
       </div>
     </main>
   );
@@ -1551,42 +1573,205 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100vh",
-    background: "#fff5f5",
-    color: "#1f1111",
+    background: "linear-gradient(180deg,#f8fafc 0%,#fff7f7 46%,#f8fafc 100%)",
+    color: "#172033",
     fontFamily: "Inter, system-ui, sans-serif",
+  },
+  sbiPage: {
+    background: "linear-gradient(180deg,#eef5ff 0%,#f8fbff 42%,#eef4fb 100%)",
+    color: "#102445",
+  },
+  bobPage: {
+    background: "linear-gradient(180deg,#fff6ed 0%,#fffaf5 42%,#fff3e7 100%)",
+    color: "#3d2316",
   },
   shell: {
     width: "100%",
     maxWidth: 560,
     margin: "0 auto",
-    padding: 16,
+    padding: "12px 14px 92px",
     position: "relative",
     boxSizing: "border-box",
   },
   header: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
-    padding: "16px 4px 20px",
-    color: "#7f1d1d",
+    justifyContent: "space-between",
+    gap: 10,
+    padding: "10px 2px 14px",
+    color: "#172033",
   },
-  logo: { width: 48, height: 48, objectFit: "contain", borderRadius: 12 },
+  sbiHeader: {
+    position: "sticky",
+    top: 0,
+    zIndex: 900,
+    margin: "-12px -14px 14px",
+    padding: "14px",
+    background: "rgba(248,251,255,.96)",
+    borderBottom: "1px solid #dbe8fb",
+    boxShadow: "0 8px 24px rgba(15,63,140,.08)",
+    backdropFilter: "blur(14px)",
+  },
+  bobHeader: {
+    position: "sticky",
+    top: 0,
+    zIndex: 900,
+    margin: "-12px -14px 14px",
+    padding: "14px",
+    background: "rgba(255,250,245,.96)",
+    borderBottom: "1px solid #fed7aa",
+    boxShadow: "0 8px 24px rgba(194,65,12,.09)",
+    backdropFilter: "blur(14px)",
+  },
+  menuButton: {
+    width: 42,
+    height: 42,
+    flexShrink: 0,
+    border: "1px solid #c9dcf8",
+    borderRadius: 13,
+    background: "#fff",
+    color: "#0f3f8c",
+    fontSize: 22,
+    fontWeight: 900,
+    boxShadow: "0 6px 16px rgba(15,63,140,.1)",
+  },
+  bobMenuButton: {
+    borderColor: "#fed7aa",
+    color: "#c2410c",
+    boxShadow: "0 6px 16px rgba(194,65,12,.11)",
+  },
+  brandWrap: { display: "flex", alignItems: "center", gap: 10, minWidth: 0 },
+  logo: {
+    width: 44,
+    height: 44,
+    objectFit: "contain",
+    borderRadius: 13,
+    background: "#fff",
+    boxShadow: "0 6px 18px rgba(15,23,42,.1)",
+  },
+  brandTitle: { display: "block", fontSize: 16, lineHeight: 1.2 },
+  brandSubtitle: { marginTop: 3, fontSize: 10, color: "#64748b", fontWeight: 700 },
+  bankBadge: {
+    flexShrink: 0,
+    padding: "7px 10px",
+    borderRadius: 999,
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: 900,
+    letterSpacing: ".08em",
+    boxShadow: "0 6px 16px rgba(15,23,42,.12)",
+  },
+  bobBadge: { background: "linear-gradient(135deg,#f97316,#b91c1c)" },
+  sbiBadge: { background: "linear-gradient(135deg,#2563eb,#0f3f8c)" },
+  drawerLayer: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 2000,
+    background: "rgba(4,15,35,.5)",
+    backdropFilter: "blur(3px)",
+  },
+  drawer: {
+    width: "min(84vw,340px)",
+    height: "100%",
+    padding: 14,
+    boxSizing: "border-box",
+    background: "#f8fbff",
+    boxShadow: "22px 0 52px rgba(4,25,62,.28)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+  },
+  drawerHero: {
+    padding: 20,
+    borderRadius: 22,
+    background: "linear-gradient(145deg,#071d3f,#0f4ba3 64%,#2583e8)",
+    color: "#fff",
+    boxShadow: "0 18px 38px rgba(15,63,140,.28)",
+  },
+  bobDrawerHero: {
+    background: "linear-gradient(145deg,#431407,#c2410c 62%,#fb923c)",
+    boxShadow: "0 18px 38px rgba(194,65,12,.28)",
+  },
+  drawerTopLine: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 },
+  drawerBankMark: { fontSize: 14, fontWeight: 950, letterSpacing: ".18em" },
+  drawerClose: {
+    width: 34,
+    height: 34,
+    border: "1px solid rgba(255,255,255,.3)",
+    borderRadius: 10,
+    background: "rgba(255,255,255,.12)",
+    color: "#fff",
+    fontSize: 24,
+  },
+  drawerName: { display: "block", fontSize: 21, letterSpacing: "-.02em" },
+  drawerMeta: { display: "block", marginTop: 7, fontSize: 12, opacity: .78 },
+  drawerNav: { display: "grid", gap: 8 },
+  drawerItem: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "12px 13px",
+    border: "1px solid transparent",
+    borderRadius: 15,
+    background: "transparent",
+    color: "#344767",
+    textAlign: "left",
+  },
+  drawerItemActive: {
+    background: "#e8f1ff",
+    borderColor: "#c9dcf8",
+    color: "#0f3f8c",
+    boxShadow: "0 8px 18px rgba(15,63,140,.08)",
+  },
+  bobDrawerItemActive: {
+    background: "#fff0df",
+    borderColor: "#fed7aa",
+    color: "#c2410c",
+    boxShadow: "0 8px 18px rgba(194,65,12,.09)",
+  },
+  drawerItemIcon: {
+    width: 38,
+    height: 38,
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+    borderRadius: 12,
+    background: "#fff",
+    color: "#1261bd",
+    fontSize: 19,
+    boxShadow: "0 5px 14px rgba(15,63,140,.1)",
+  },
+  bobDrawerItemIcon: {
+    color: "#d35400",
+    boxShadow: "0 5px 14px rgba(194,65,12,.11)",
+  },
+  drawerItemText: { display: "grid", gap: 3, flex: 1 },
+  drawerLogout: {
+    marginTop: "auto",
+    minHeight: 48,
+    border: "1px solid #fecaca",
+    borderRadius: 14,
+    background: "#fff",
+    color: "#b91c1c",
+    fontWeight: 850,
+  },
   card: {
     background: "#ffffff",
-    borderRadius: 22,
-    padding: 24,
-    border: "1px solid #fee2e2",
-    boxShadow: "0 16px 38px rgba(127,29,29,.12)",
+    borderRadius: 20,
+    padding: 20,
+    border: "1px solid #e8edf4",
+    boxShadow: "0 14px 36px rgba(15,23,42,.08)",
   },
-  title: { margin: 0, fontSize: 28 },
-  subtext: { color: "#7f1d1d", lineHeight: 1.6 },
+  title: { margin: 0, fontSize: 25, letterSpacing: "-.03em" },
+  subtext: { color: "#64748b", lineHeight: 1.55, fontSize: 14 },
   form: { display: "grid", gap: 12, marginTop: 20 },
   input: {
     width: "100%",
     minHeight: 50,
     padding: "0 14px",
     borderRadius: 12,
-    border: "1px solid #fecaca",
+    border: "1px solid #dbe3ee",
     background: "#fff",
     fontSize: 15,
     boxSizing: "border-box",
@@ -1596,7 +1781,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 50,
     border: 0,
     borderRadius: 12,
-    background: "linear-gradient(135deg,#dc2626,#7f1d1d)",
+    background: "linear-gradient(135deg,#dc2626,#8f1111)",
     color: "#fff",
     fontSize: 15,
     fontWeight: 800,
@@ -1638,7 +1823,21 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 20,
     background: "linear-gradient(135deg,#111111 0%,#7f1d1d 55%,#dc2626 100%)",
     color: "#fff",
-    boxShadow: "0 16px 34px rgba(127,29,29,.24)",
+    boxShadow: "0 18px 38px rgba(15,23,42,.22)",
+  },
+  sbiProfileCard: {
+    background: "linear-gradient(145deg,#071d3f 0%,#0f4ba3 62%,#2583e8 100%)",
+    boxShadow: "0 18px 42px rgba(15,63,140,.28)",
+  },
+  bobProfileCard: {
+    background: "linear-gradient(145deg,#431407 0%,#c2410c 62%,#fb923c 100%)",
+    boxShadow: "0 18px 42px rgba(194,65,12,.28)",
+  },
+  profileEyebrow: {
+    fontSize: 10,
+    opacity: 0.74,
+    fontWeight: 900,
+    letterSpacing: ".12em",
   },
   logoutButton: {
     border: "1px solid rgba(255,255,255,.35)",
@@ -1655,11 +1854,15 @@ const styles: Record<string, CSSProperties> = {
     marginTop: 14,
   },
   statCard: {
-    padding: 15,
+    display: "grid",
+    gap: 7,
+    padding: "14px 12px",
     borderRadius: 15,
     background: "#fff",
-    boxShadow: "0 8px 24px rgba(15,23,42,.06)",
+    border: "1px solid #edf1f6",
+    boxShadow: "0 8px 24px rgba(15,23,42,.05)",
   },
+  statLabel: { color: "#64748b", fontSize: 11, fontWeight: 700 },
   sectionHead: {
     display: "flex",
     justifyContent: "space-between",
@@ -1726,7 +1929,8 @@ const styles: Record<string, CSSProperties> = {
   caseCard: {
     borderRadius: 16,
     background: "#fff",
-    boxShadow: "0 8px 24px rgba(15,23,42,.06)",
+    border: "1px solid #e8edf4",
+    boxShadow: "0 8px 22px rgba(15,23,42,.05)",
     overflow: "hidden",
   },
   caseOpenButton: {
@@ -1794,8 +1998,9 @@ const styles: Record<string, CSSProperties> = {
     overflow: "hidden",
     whiteSpace: "nowrap",
     padding: "10px 0",
-    borderTop: "1px solid #fbbf24",
-    borderBottom: "1px solid #f59e0b",
+    marginBottom: 14,
+    border: "1px solid #fde68a",
+    borderRadius: 12,
     background: "linear-gradient(90deg, #fff7ed, #fef3c7, #fff7ed)",
     color: "#9a3412",
     boxShadow: "0 5px 16px rgba(146,64,14,.12)",
@@ -1869,27 +2074,52 @@ const styles: Record<string, CSSProperties> = {
   },
   bottomNav: {
     position: "fixed",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 64,
-    background: "#fff",
+    bottom: 10,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: "calc(100% - 20px)",
+    maxWidth: 540,
+    minHeight: 68,
+    padding: 6,
+    boxSizing: "border-box",
+    borderRadius: 20,
+    background: "rgba(255,255,255,.96)",
     display: "flex",
-    justifyContent: "space-around",
+    justifyContent: "space-between",
     alignItems: "center",
-    borderTop: "1px solid #fecaca",
+    border: "1px solid #e5eaf1",
     zIndex: 1000,
-    boxShadow: "0 -4px 20px rgba(0,0,0,0.05)",
+    boxShadow: "0 14px 38px rgba(15,23,42,.18)",
+  },
+  sbiDetailHero: {
+    background: "linear-gradient(145deg,#071d3f 0%,#0f4ba3 62%,#2583e8 100%)",
+    boxShadow: "0 18px 42px rgba(15,63,140,.25)",
+  },
+  bobDetailHero: {
+    background: "linear-gradient(145deg,#431407 0%,#c2410c 62%,#fb923c 100%)",
+    boxShadow: "0 18px 42px rgba(194,65,12,.25)",
   },
   navItem: {
     background: "transparent",
     border: 0,
+    minWidth: 0,
+    flex: 1,
+    minHeight: 54,
+    padding: "6px 3px",
+    borderRadius: 14,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     gap: 3,
-    fontSize: 11,
-    fontWeight: 700,
+    color: "#64748b",
+    fontSize: 10,
+    fontWeight: 800,
     cursor: "pointer",
   },
+  navItemActive: {
+    background: "#fff1f2",
+    color: "#b91c1c",
+    boxShadow: "inset 0 0 0 1px #fecdd3",
+  },
+  navIcon: { fontSize: 18, lineHeight: 1 },
 };
