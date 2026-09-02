@@ -592,9 +592,10 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
                 String(b.executive_code || "")
               );
         })[0];
-        const selectedExecutive = selectedBank === "SBI"
-          ? approvedSbiExecutive
-          : requestedExecutive;
+        // A direct/manual assignment is authoritative for both banks.
+        // Area-based SBI allocation is only the fallback when the admin has
+        // not explicitly selected an executive.
+        const selectedExecutive = requestedExecutive;
 
         if (selectedExecutive) {
           workload.set(
@@ -667,6 +668,42 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
       const importedAccounts = payload.map((row) =>
         normalizeAccount(row.account_number)
       );
+
+      // Upsert intentionally keeps duplicate case records unchanged, but a
+      // direct executive upload must still update their assignment. Without
+      // this pass, existing SBI accounts remain attached to the old executive
+      // and never appear in the selected executive's mobile app.
+      if (directExecutiveId) {
+        const directExecutive = executives.find(
+          (executive) => String(executive.id) === String(directExecutiveId)
+        );
+
+        if (!directExecutive) {
+          throw new Error("Selected executive active list me nahi mila.");
+        }
+
+        const assignmentBatchSize = 100;
+        for (
+          let index = 0;
+          index < importedAccounts.length;
+          index += assignmentBatchSize
+        ) {
+          const accountBatch = importedAccounts.slice(
+            index,
+            index + assignmentBatchSize
+          );
+          const { error: assignmentError } = await supabase
+            .from(selectedBankContext.tables.cases)
+            .update({
+              assigned_executive_id: directExecutive.id,
+              assigned_executive: formatExecutive(directExecutive),
+              executive_code: directExecutive.executive_code,
+            })
+            .in("account_number", accountBatch);
+
+          if (assignmentError) throw assignmentError;
+        }
+      }
 
       setExistingAccounts(
         (previous) => new Set([...previous, ...importedAccounts])

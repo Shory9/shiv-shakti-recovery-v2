@@ -134,10 +134,8 @@ function toNumber(value: unknown) {
 }
 
 function formatMoney(value: unknown) {
-  const amountInLakhs = toNumber(value);
-  if (amountInLakhs <= 0) return "";
-
-  const amountInRupees = amountInLakhs * 100000;
+  const amountInRupees = toNumber(value);
+  if (amountInRupees <= 0) return "";
 
   return amountInRupees.toLocaleString("en-IN", {
     style: "currency",
