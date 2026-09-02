@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
@@ -11,6 +12,7 @@ import {
   CameraResultType,
   CameraSource,
 } from "@capacitor/camera";
+import { App as CapacitorApp } from "@capacitor/app";
 import { Geolocation } from "@capacitor/geolocation";
 import { supabase } from "../supabaseClient";
 import { initializeWorkReminders } from "../utils/workReminderNotifications";
@@ -72,6 +74,15 @@ type Screen =
 
 const MOBILE_EXECUTIVE_ID_KEY = "ssr_mobile_executive_id";
 const MOBILE_SCREEN_KEY = "ssr_mobile_screen";
+const PENDING_VISIT_KEY = "ssr_pending_visit";
+const RESTORED_VISIT_PHOTO_KEY = "ssr_restored_visit_photo";
+
+type PendingVisit = {
+  caseId: string;
+  outcome: string;
+  remarks: string;
+  followUp: string;
+};
 
 
 
@@ -155,7 +166,7 @@ function stampVisitPhoto(
     const image = new Image();
 
     image.onload = () => {
-      const maxSide = 1600;
+      const maxSide = 1280;
       const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.round(image.width * scale));
@@ -218,7 +229,8 @@ function stampVisitPhoto(
       canvas.toBlob(
         (blob) => {
           URL.revokeObjectURL(imageUrl);
-          blob ? resolve(blob) : reject(new Error("GPS stamp photo nahi bani."));
+          if (blob) resolve(blob);
+          else reject(new Error("GPS stamp photo nahi bani."));
         },
         "image/jpeg",
         0.82
@@ -278,6 +290,7 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
   const [paymentCaseSearch, setPaymentCaseSearch] = useState("");
   const [paymentType, setPaymentType] = useState("Settlement");
   const [paymentRemarks, setPaymentRemarks] = useState("");
+  const restoringVisitRef = useRef(false);
 
   const paymentCases = useMemo(() => {
     const query = cleanText(paymentCaseSearch).toLowerCase();
@@ -309,6 +322,57 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
     const savedId = cleanText(localStorage.getItem(executiveStorageKey));
     if (savedId) void restoreSession(savedId);
   }, []);
+
+  useEffect(() => {
+    let removeListener: (() => Promise<void>) | undefined;
+
+    void CapacitorApp.addListener("appRestoredResult", (result) => {
+      if (
+        result.pluginId !== "Camera" ||
+        result.methodName !== "getPhoto" ||
+        !result.success
+      ) {
+        return;
+      }
+
+      const webPath = cleanText(result.data?.webPath);
+      if (webPath) {
+        localStorage.setItem(RESTORED_VISIT_PHOTO_KEY, webPath);
+      }
+    }).then((handle) => {
+      removeListener = () => handle.remove();
+    });
+
+    return () => {
+      void removeListener?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!executive || cases.length === 0 || restoringVisitRef.current) return;
+
+    const photoPath = cleanText(localStorage.getItem(RESTORED_VISIT_PHOTO_KEY));
+    const pendingRaw = localStorage.getItem(PENDING_VISIT_KEY);
+    if (!photoPath || !pendingRaw) return;
+
+    try {
+      const pending = JSON.parse(pendingRaw) as PendingVisit;
+      const visitCase = cases.find((item) => item.id === pending.caseId);
+      if (!visitCase) return;
+
+      restoringVisitRef.current = true;
+      queueMicrotask(() => {
+        setSelectedCase(visitCase);
+        setScreen("caseDetails");
+        void completeVisitPhoto(photoPath, visitCase, executive, pending).finally(() => {
+          restoringVisitRef.current = false;
+        });
+      });
+    } catch {
+      localStorage.removeItem(PENDING_VISIT_KEY);
+      localStorage.removeItem(RESTORED_VISIT_PHOTO_KEY);
+    }
+  }, [cases, executive]);
 
   useEffect(() => {
     if (
@@ -645,36 +709,15 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
     }
   }
 
-  async function recordCaseVisit(visitCase: CaseRow) {
-    if (!executive) {
-      setMessage("Executive session nahi mili.");
-      return;
-    }
-    if (!visitOutcome.trim() || !visitRemarks.trim()) {
-      setMessage("Visit outcome aur remark required hai.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
-
+  async function completeVisitPhoto(
+    photoWebPath: string,
+    visitCase: CaseRow,
+    visitExecutive: ExecutiveRow,
+    pending: PendingVisit
+  ) {
     setLoading(true);
-    setMessage("Camera open ho raha hai...");
 
     try {
-      await Camera.requestPermissions({ permissions: ["camera"] });
-      const capturedPhoto = await Camera.getPhoto({
-        quality: 92,
-        width: 1800,
-        correctOrientation: true,
-        saveToGallery: false,
-        source: CameraSource.Camera,
-        resultType: CameraResultType.Uri,
-        direction: CameraDirection.Rear,
-      });
-
-      if (!capturedPhoto.webPath) {
-        throw new Error("Camera photo nahi mili.");
-      }
-
       setMessage("Live GPS lock ho raha hai...");
       await Geolocation.requestPermissions({ permissions: ["location"] });
       const position = await Geolocation.getCurrentPosition({
@@ -686,12 +729,12 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
         lat: position.coords.latitude,
         lng: position.coords.longitude,
       };
-      const rawPhoto = await fetch(capturedPhoto.webPath).then((response) => {
+      const rawPhoto = await fetch(photoWebPath).then((response) => {
         if (!response.ok) throw new Error("Camera photo read nahi hui.");
         return response.blob();
       });
-      const photo = await stampVisitPhoto(rawPhoto, coords, visitCase, executive);
-      const photoPath = `${executive.id}/${visitCase.id}/${Date.now()}.jpg`;
+      const photo = await stampVisitPhoto(rawPhoto, coords, visitCase, visitExecutive);
+      const photoPath = `${visitExecutive.id}/${visitCase.id}/${Date.now()}.jpg`;
 
       setMessage("GPS-stamped visit photo upload ho rahi hai...");
       const { error: uploadError } = await supabase.storage
@@ -706,15 +749,15 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
 
       const { data, error } = await supabase.rpc(rpcName("mobile_record_detailed_visit"), {
         p_case_id: visitCase.id,
-        p_executive_id: String(executive.id),
-        p_executive_code: getExecutiveCode(executive),
-        p_mobile: executivePhone(executive),
+        p_executive_id: String(visitExecutive.id),
+        p_executive_code: getExecutiveCode(visitExecutive),
+        p_mobile: executivePhone(visitExecutive),
         p_photo_path: photoPath,
         p_latitude: coords.lat,
         p_longitude: coords.lng,
-        p_outcome: visitOutcome,
-        p_remarks: visitRemarks.trim(),
-        p_next_follow_up: visitFollowUp || null,
+        p_outcome: pending.outcome,
+        p_remarks: pending.remarks,
+        p_next_follow_up: pending.followUp || null,
       });
 
       if (error) throw error;
@@ -729,16 +772,65 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
       setSelectedCase((current) =>
         current?.id === visitCase.id ? { ...current, status: "Visited" } : current
       );
-      setMessage(
-        "Visit saved: camera photo par GPS stamp lagkar upload ho gayi."
-      );
+      setMessage("Visit saved: camera photo par GPS stamp lagkar upload ho gayi.");
       setVisitRemarks("");
       setVisitFollowUp("");
+      localStorage.removeItem(PENDING_VISIT_KEY);
+      localStorage.removeItem(RESTORED_VISIT_PHOTO_KEY);
+    } catch (error) {
+      console.error("Visit capture error:", error);
+      setMessage(`Visit save error: ${errorMessage(error, "Unknown visit error")}`);
+    } finally {
+      setLoading(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  async function recordCaseVisit(visitCase: CaseRow) {
+    if (!executive) {
+      setMessage("Executive session nahi mili.");
+      return;
+    }
+    if (!visitOutcome.trim() || !visitRemarks.trim()) {
+      setMessage("Visit outcome aur remark required hai.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    setLoading(true);
+    setMessage("Camera open ho raha hai...");
+
+    const pending: PendingVisit = {
+      caseId: visitCase.id,
+      outcome: visitOutcome,
+      remarks: visitRemarks.trim(),
+      followUp: visitFollowUp,
+    };
+    localStorage.setItem(PENDING_VISIT_KEY, JSON.stringify(pending));
+
+    try {
+      await Camera.requestPermissions({ permissions: ["camera"] });
+      const capturedPhoto = await Camera.getPhoto({
+        quality: 82,
+        width: 1280,
+        correctOrientation: true,
+        saveToGallery: false,
+        source: CameraSource.Camera,
+        resultType: CameraResultType.Uri,
+        direction: CameraDirection.Rear,
+      });
+
+      if (!capturedPhoto.webPath) {
+        throw new Error("Camera photo nahi mili.");
+      }
+      await completeVisitPhoto(capturedPhoto.webPath, visitCase, executive, pending);
     } catch (error) {
       console.error("Visit capture error:", error);
       setMessage(
         `Visit save error: ${errorMessage(error, "Unknown visit error")}`
       );
+      localStorage.removeItem(PENDING_VISIT_KEY);
+      localStorage.removeItem(RESTORED_VISIT_PHOTO_KEY);
     } finally {
       setLoading(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
