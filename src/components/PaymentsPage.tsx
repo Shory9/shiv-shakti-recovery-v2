@@ -21,6 +21,7 @@ type PaymentRecord = {
 };
 
 type PaymentBank = "BOB" | "SBI";
+type PaymentBankFilter = "All" | PaymentBank;
 type AdminCaseOption = {
   id: string;
   bank: PaymentBank;
@@ -134,6 +135,7 @@ function PaymentsPage() {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PaymentStatus>("All");
+  const [bankFilter, setBankFilter] = useState<PaymentBankFilter>("All");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
@@ -403,6 +405,9 @@ function PaymentsPage() {
         { event: "*", schema: "public", table: "payments" },
         () => void loadPayments(true)
       )
+      .on("postgres_changes", { event: "*", schema: "public", table: "sbi_payments" }, () => void loadPayments(true))
+      .on("postgres_changes", { event: "*", schema: "public", table: "sbi_cases" }, () => void loadPayments(true))
+      .on("postgres_changes", { event: "*", schema: "public", table: "sbi_executives" }, () => void loadPayments(true))
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "cases" },
@@ -436,10 +441,11 @@ function PaymentsPage() {
 
       const matchesStatus =
         statusFilter === "All" || payment.status === statusFilter;
+      const matchesBank = bankFilter === "All" || payment.bank === bankFilter;
 
-      return matchesSearch && matchesStatus;
+      return matchesSearch && matchesStatus && matchesBank;
     });
-  }, [payments, search, statusFilter]);
+  }, [bankFilter, payments, search, statusFilter]);
 
   const totalAmount = payments.reduce((total, payment) => total + payment.amount, 0);
   const recordedCount = payments.filter(
@@ -475,7 +481,7 @@ function PaymentsPage() {
         .payments-case-found{grid-column:span 4;padding:12px 14px;border:1px solid #bbf7d0;border-radius:11px;background:#f0fdf4;color:#166534;font-size:12px;font-weight:800}
         .payments-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.payments-heading h2{margin:0}.payments-heading p{margin:5px 0 0;color:#64748b;font-size:12px}
         .payments-connected{padding:7px 11px;border-radius:999px;background:#ecfdf5;color:#047857;font-size:10px;font-weight:900}
-        .payments-toolbar{display:grid;grid-template-columns:1fr 180px 140px;gap:10px;margin:16px 0}
+        .payments-toolbar{display:grid;grid-template-columns:160px 1fr 180px 140px;gap:10px;margin:16px 0}
         .payments-input,.payments-select,.payments-button{height:43px;padding:0 12px;border:1px solid #cbd5e1;border-radius:10px;background:white}
         .payments-button{font-weight:800;cursor:pointer}
         .payments-table-wrap{overflow:auto;border:1px solid #e2e8f0;border-radius:13px}
@@ -562,6 +568,9 @@ function PaymentsPage() {
         </div>
 
         <div className="payments-toolbar">
+          <select className="payments-select" value={bankFilter} onChange={(event) => setBankFilter(event.target.value as PaymentBankFilter)} aria-label="Filter payments by bank">
+            <option value="All">All Banks</option><option value="BOB">BOB</option><option value="SBI">SBI</option>
+          </select>
           <input
             className="payments-input"
             value={search}
@@ -609,7 +618,7 @@ function PaymentsPage() {
 
               <tbody>
                 {filteredPayments.map((payment) => (
-                  <tr key={payment.id}>
+                  <tr key={`${payment.bank}:${payment.id}`}>
                     <td>{payment.receiptNumber}</td>
                     <td>
                       <div className="payments-customer">

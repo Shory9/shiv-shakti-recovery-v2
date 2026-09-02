@@ -856,9 +856,9 @@ export default function MobileExecutiveApp({ bankCode = "BOB" }: MobileExecutive
         <header style={styles.header}>
           <img src="/logo.png" alt="Shiv Shakti" style={styles.logo} />
           <div>
-            <strong style={{ fontSize: 18 }}>Shiv Shakti Recovery {isSbi ? "— SBI" : ""}</strong>
+            <strong style={{ fontSize: 18 }}>Shiv Shakti Recovery — {isSbi ? "SBI" : "BOB"}</strong>
             <div style={{ fontSize: 12, opacity: 0.75 }}>
-              Executive Mobile App
+              Secure Field Executive App
             </div>
           </div>
         </header>

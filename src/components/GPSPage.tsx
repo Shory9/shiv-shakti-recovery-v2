@@ -7,6 +7,7 @@ type GPSStatus = "Live" | "Recently Active" | "Offline" | "Not Connected";
 
 type ExecutiveLocation = {
   id: number | string;
+  bank: "BOB" | "SBI";
   name: string;
   code: string;
   mobile: string;
@@ -18,9 +19,25 @@ type ExecutiveLocation = {
   lastUpdated: string | null;
 };
 
+type BankFilter = "All" | "BOB" | "SBI";
+
 const LIVE_MINUTES = 5;
 const RECENT_MINUTES = 30;
 const AUTO_REFRESH_MS = 30_000;
+
+async function fetchAllRows(table: "executives" | "gps_locations" | "sbi_executives" | "sbi_gps_locations") {
+  const rows: RawRow[] = [];
+  const pageSize = 1000;
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase.from(table).select("*").range(from, from + pageSize - 1);
+    if (error) throw error;
+    const page = (data ?? []) as RawRow[];
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+    from += pageSize;
+  }
+}
 
 function textValue(row: RawRow, keys: string[], fallback = "") {
   for (const key of keys) {
@@ -105,6 +122,7 @@ function googleMapsUrl(latitude: number, longitude: number) {
 function GPSPage() {
   const [executives, setExecutives] = useState<ExecutiveLocation[]>([]);
   const [search, setSearch] = useState("");
+  const [bankFilter, setBankFilter] = useState<BankFilter>("All");
   const [selectedId, setSelectedId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -118,44 +136,25 @@ function GPSPage() {
     setError("");
 
     try {
-      const allExecutives: RawRow[] = [];
-      const allLocations: RawRow[] = [];
-      const pageSize = 1000;
-      let from = 0;
-
-      while (true) {
-        const { data, error: executivesError } = await supabase
-          .from("executives")
-          .select("*")
-          .range(from, from + pageSize - 1);
-
-        if (executivesError) throw executivesError;
-
-        const rows = (data ?? []) as RawRow[];
-        allExecutives.push(...rows);
-        if (rows.length < pageSize) break;
-        from += pageSize;
-      }
-
-      from = 0;
-      while (true) {
-        const { data, error: locationsError } = await supabase
-          .from("gps_locations")
-          .select("*")
-          .range(from, from + pageSize - 1);
-
-        if (locationsError) throw locationsError;
-
-        const rows = (data ?? []) as RawRow[];
-        allLocations.push(...rows);
-        if (rows.length < pageSize) break;
-        from += pageSize;
-      }
+      const [bobExecutives, bobLocations, sbiExecutives, sbiLocations] = await Promise.all([
+        fetchAllRows("executives"),
+        fetchAllRows("gps_locations"),
+        fetchAllRows("sbi_executives"),
+        fetchAllRows("sbi_gps_locations"),
+      ]);
+      const allExecutives = [
+        ...bobExecutives.map((row) => ({ ...row, __bank: "BOB" })),
+        ...sbiExecutives.map((row) => ({ ...row, __bank: "SBI" })),
+      ];
+      const allLocations = [
+        ...bobLocations.map((row) => ({ ...row, __bank: "BOB" })),
+        ...sbiLocations.map((row) => ({ ...row, __bank: "SBI" })),
+      ];
 
       const latestLocationByExecutive = new Map<string, RawRow>();
 
       allLocations.forEach((location) => {
-        const executiveId = textValue(location, ["executive_id"]);
+        const executiveId = `${textValue(location, ["__bank"], "BOB")}:${textValue(location, ["executive_id"])}`;
         if (!executiveId) return;
 
         const current = latestLocationByExecutive.get(executiveId);
@@ -182,7 +181,8 @@ function GPSPage() {
 
       const merged = executiveRows.map((executive, index) => {
         const id = textValue(executive, ["id"], String(index + 1));
-        const location = latestLocationByExecutive.get(id) ?? {};
+        const bank = textValue(executive, ["__bank"], "BOB") as "BOB" | "SBI";
+        const location = latestLocationByExecutive.get(`${bank}:${id}`) ?? {};
         const latitude = numberValue(location, ["latitude"]);
         const longitude = numberValue(location, ["longitude"]);
         const accuracy = numberValue(location, ["accuracy"]);
@@ -193,6 +193,7 @@ function GPSPage() {
 
         return {
           id,
+          bank,
           name: textValue(executive, ["full_name"], "Unnamed Executive"),
           code: textValue(
             executive,
@@ -228,9 +229,9 @@ function GPSPage() {
       setExecutives(merged);
       setLastRefresh(new Date());
       setSelectedId((current) => {
-        if (current && merged.some((item) => String(item.id) === current)) return current;
+        if (current && merged.some((item) => `${item.bank}:${item.id}` === current)) return current;
         const firstConnected = merged.find((item) => validCoordinate(item.latitude, item.longitude));
-        return firstConnected ? String(firstConnected.id) : "";
+        return firstConnected ? `${firstConnected.bank}:${firstConnected.id}` : "";
       });
     } catch (caughtError) {
       const message =
@@ -244,6 +245,8 @@ function GPSPage() {
   }, []);
 
   useEffect(() => {
+    // Initial remote data sync intentionally starts when the page mounts.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadGPSData();
 
     const timer = window.setInterval(() => {
@@ -263,6 +266,8 @@ function GPSPage() {
           void loadGPSData(true);
         }
       )
+      .on("postgres_changes", { event: "*", schema: "public", table: "sbi_gps_locations" }, () => void loadGPSData(true))
+      .on("postgres_changes", { event: "*", schema: "public", table: "sbi_executives" }, () => void loadGPSData(true))
       .subscribe();
 
     return () => {
@@ -276,21 +281,21 @@ function GPSPage() {
 
     return executives.filter((executive) => {
       return (
-        !query ||
+        (bankFilter === "All" || executive.bank === bankFilter) && (!query ||
         executive.name.toLowerCase().includes(query) ||
         executive.code.toLowerCase().includes(query) ||
         executive.mobile.toLowerCase().includes(query) ||
         executive.area.toLowerCase().includes(query) ||
-        executive.status.toLowerCase().includes(query)
+        executive.status.toLowerCase().includes(query))
       );
     });
-  }, [executives, search]);
+  }, [bankFilter, executives, search]);
 
   const selectedExecutive = useMemo(
     () =>
-      executives.find((executive) => String(executive.id) === selectedId) ??
+      filteredExecutives.find((executive) => `${executive.bank}:${executive.id}` === selectedId) ??
       null,
-    [executives, selectedId]
+    [filteredExecutives, selectedId]
   );
 
   const liveCount = executives.filter(
@@ -628,6 +633,8 @@ function GPSPage() {
           box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.11);
         }
 
+        .gps-directory-filters { display: grid; grid-template-columns: 160px 1fr; gap: 10px; }
+
         .gps-list {
           display: flex;
           flex-direction: column;
@@ -939,12 +946,12 @@ function GPSPage() {
             </div>
           </div>
 
-          <input
-            className="gps-search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search executive, code, mobile, area..."
-          />
+          <div className="gps-directory-filters">
+            <select className="gps-search" value={bankFilter} onChange={(event) => setBankFilter(event.target.value as BankFilter)} aria-label="Filter GPS by bank">
+              <option value="All">All Banks</option><option value="BOB">BOB</option><option value="SBI">SBI</option>
+            </select>
+            <input className="gps-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search executive, code, mobile, area..." />
+          </div>
 
           <div className="gps-list">
             {loading ? (
@@ -963,11 +970,11 @@ function GPSPage() {
                 return (
                   <button
                     className={`gps-executive-card ${
-                      String(executive.id) === selectedId ? "selected" : ""
+                      `${executive.bank}:${executive.id}` === selectedId ? "selected" : ""
                     }`}
-                    key={executive.id}
+                    key={`${executive.bank}:${executive.id}`}
                     type="button"
-                    onClick={() => setSelectedId(String(executive.id))}
+                    onClick={() => setSelectedId(`${executive.bank}:${executive.id}`)}
                   >
                     <div className="gps-executive-top">
                       <div className="gps-profile">
@@ -981,7 +988,7 @@ function GPSPage() {
                         </div>
 
                         <div>
-                          <strong>{executive.name}</strong>
+                          <strong>{executive.name} · {executive.bank}</strong>
                           <span>
                             {executive.code} • {executive.mobile}
                           </span>
