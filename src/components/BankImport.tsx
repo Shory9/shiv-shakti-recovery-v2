@@ -539,7 +539,8 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
   );
 
   async function handleImportNewCases(): Promise<void> {
-    if (newRecords.length === 0 || isImporting) return;
+    const canReassignExistingCases = Boolean(directExecutiveId) && records.length > 0;
+    if ((newRecords.length === 0 && !canReassignExistingCases) || isImporting) return;
 
     setIsImporting(true);
     setImportProgress(0);
@@ -665,8 +666,11 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
         );
       }
 
-      const importedAccounts = payload.map((row) =>
-        normalizeAccount(row.account_number)
+      // Direct executive uploads are allocation files. They may contain
+      // accounts already present in the database, so use every valid parsed
+      // account for reassignment—not only newly inserted records.
+      const importedAccounts = (directExecutiveId ? records : payload).map((row) =>
+        normalizeAccount("accountNumber" in row ? row.accountNumber : row.account_number)
       );
 
       // Upsert intentionally keeps duplicate case records unchanged, but a
@@ -722,15 +726,18 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
 
       setImportProgress(100);
       setStatusMessage(
-        `${payload.length} cases successfully imported.`
+        directExecutiveId
+          ? `${payload.length} new cases imported; ${importedAccounts.length} cases executive ko assigned.`
+          : `${payload.length} cases successfully imported.`
       );
       alert(
         [
           "Import complete.",
-          `Imported: ${payload.length}`,
+          `New imported: ${payload.length}`,
+          directExecutiveId ? `Assigned/Reassigned: ${importedAccounts.length}` : null,
           `Auto assigned: ${autoAssignedPreview}`,
           `Unassigned: ${payload.length - autoAssignedPreview}`,
-        ].join("\n")
+        ].filter(Boolean).join("\n")
       );
     } catch (error) {
       const value = error as {
@@ -845,11 +852,16 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
             <button
               type="button"
               onClick={handleImportNewCases}
-              disabled={isImporting || newRecords.length === 0}
+              disabled={
+                isImporting ||
+                (newRecords.length === 0 && !(directExecutiveId && records.length > 0))
+              }
             >
               {isImporting
                 ? `Importing ${importProgress}%`
-                : `Import ${newRecords.length} New Cases`}
+                : directExecutiveId
+                  ? `Assign ${records.length} Cases (${newRecords.length} New)`
+                  : `Import ${newRecords.length} New Cases`}
             </button>
           </div>
 
