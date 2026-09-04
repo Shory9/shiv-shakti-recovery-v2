@@ -74,6 +74,12 @@ const SBI_CUSTOMER_HEADERS = [
   "NAME",
 ] as const;
 
+// BOB periodically sends a compact allocation workbook whose headers differ
+// from the full NPA export. Treat both layouts as the same bank data instead
+// of requiring admins to rename columns before every upload.
+const BOB_ACCOUNT_HEADERS = ["A/C No", "ACC NO", "ACCOUNT NO", "ACCOUNT_NO"] as const;
+const BOB_CUSTOMER_HEADERS = ["A/C Name", "NAME", "CUSTOMER NAME", "CUSTOMER_NAME"] as const;
+
 const normalizeHeader = (value: unknown): string =>
   String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -347,13 +353,13 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
       const matrix = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: "", raw: false });
       const requiredAliases = selectedBank === "SBI"
         ? [SBI_ACCOUNT_HEADERS, SBI_CUSTOMER_HEADERS]
-        : [["A/C No"], ["A/C Name"]];
+        : [BOB_ACCOUNT_HEADERS, BOB_CUSTOMER_HEADERS];
       const headerRowIndex = matrix.slice(0, 20).findIndex((row) => {
         const headers = row.map(normalizeHeader);
         return requiredAliases.every((aliases) => aliases.some((alias) => headers.includes(normalizeHeader(alias))));
       });
       if (headerRowIndex < 0) {
-        throw new Error(selectedBank === "SBI" ? "ACCOUNT aur CUST NAME columns nahi mili." : "A/C No aur A/C Name columns nahi mili.");
+        throw new Error(selectedBank === "SBI" ? "ACCOUNT aur CUST NAME columns nahi mili." : "BOB account number aur customer name columns nahi mili.");
       }
       const rows = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, {
         defval: "",
@@ -384,10 +390,10 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
 
       rows.forEach((row) => {
         const accountNumber = String(
-          getFirstValue(row, ["A/C No", ...SBI_ACCOUNT_HEADERS]) ?? ""
+          getFirstValue(row, [...BOB_ACCOUNT_HEADERS, ...SBI_ACCOUNT_HEADERS]) ?? ""
         ).trim();
         const accountName = String(
-          getFirstValue(row, ["A/C Name", ...SBI_CUSTOMER_HEADERS]) ?? ""
+          getFirstValue(row, [...BOB_CUSTOMER_HEADERS, ...SBI_CUSTOMER_HEADERS]) ?? ""
         ).trim();
         const normalizedAccount = normalizeAccount(accountNumber);
 
@@ -424,7 +430,7 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
 
         uniqueCases.set(normalizedAccount, {
           sn: integerValue(getExactValue(row, "SN")),
-          caseType: textValue(getExactValue(row, "TYPE")),
+          caseType: textValue(getFirstValue(row, ["TYPE", "BASE"])),
           alpha,
           solId: textValue(getExactValue(row, "SOL ID")),
           branch,
@@ -434,7 +440,7 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
           sanctionLimit: numberValue(getFirstValue(row, ["Sanction Limit", "LIMIT"])),
           sanctionDate: excelDateValue(getExactValue(row, "Sanction Date")),
           schemeCode: textValue(getExactValue(row, "Scheme Code")),
-          revSeg: textValue(getExactValue(row, "REV SEG")),
+          revSeg: textValue(getFirstValue(row, ["REV SEG", "SEGMENT"])),
           balanceInr: numberValue(
             getFirstValue(row, ["Balance [INR]", "OUTSTAND", "OUTSTADING", "O/S"])
           ),
