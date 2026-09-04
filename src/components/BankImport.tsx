@@ -435,8 +435,12 @@ function BankImport({ directExecutiveId, directExecutiveName, directBank, onClea
           sanctionDate: excelDateValue(getExactValue(row, "Sanction Date")),
           schemeCode: textValue(getExactValue(row, "Scheme Code")),
           revSeg: textValue(getExactValue(row, "REV SEG")),
-          balanceInr: numberValue(getFirstValue(row, ["Balance [INR]", "OUTSTAND"])),
-          customerBalance: numberValue(getFirstValue(row, ["Cust. Bal", "OUTSTAND"])),
+          balanceInr: numberValue(
+            getFirstValue(row, ["Balance [INR]", "OUTSTAND", "OUTSTADING", "O/S"])
+          ),
+          customerBalance: numberValue(
+            getFirstValue(row, ["Cust. Bal", "OUTSTAND", "OUTSTADING", "O/S"])
+          ),
           ecgcReceivable: numberValue(getExactValue(row, "ECGC Rece")),
           assetClass: textValue(getExactValue(row, "Class")),
           npaDate: excelDateValue(getExactValue(row, "NPA Date")),
