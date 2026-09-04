@@ -144,6 +144,10 @@ function PaymentsPage() {
   const [formBank, setFormBank] = useState<PaymentBank>("BOB");
   const [formCaseId, setFormCaseId] = useState("");
   const [formCaseSearch, setFormCaseSearch] = useState("");
+  const [formManualCase, setFormManualCase] = useState(false);
+  const [formManualAccount, setFormManualAccount] = useState("");
+  const [formManualName, setFormManualName] = useState("");
+  const [formManualBranch, setFormManualBranch] = useState("");
   const [formExecutiveId, setFormExecutiveId] = useState("");
   const [formAmount, setFormAmount] = useState("");
   const [formMode, setFormMode] = useState("Settlement");
@@ -343,31 +347,90 @@ function PaymentsPage() {
     event.preventDefault();
     const amount = numberValue(formAmount);
     const selectedCase = selectedAdminCase;
-    if (!formCaseId || amount <= 0 || !formDate || !selectedCase?.branch) {
-      setMessage("Case, branch, valid amount aur payment date required hai.");
+    const manualAccount = formManualAccount.trim();
+    const manualName = formManualName.trim();
+    const manualBranch = formManualBranch.trim();
+    if (
+      amount <= 0 ||
+      !formDate ||
+      (formManualCase
+        ? !manualAccount || !manualName || !manualBranch
+        : !formCaseId || !selectedCase?.branch)
+    ) {
+      setMessage(
+        formManualCase
+          ? "Account number, customer name, branch, valid amount aur payment date required hai."
+          : "Case, branch, valid amount aur payment date required hai."
+      );
       return;
     }
     setSaving(true);
     setMessage("");
-    const table = formBank === "SBI" ? "sbi_payments" : "payments";
-    const { error } = await supabase.from(table).insert({
-      case_id: formCaseId,
-      executive_id: formExecutiveId || null,
-      amount,
-      payment_mode: formMode,
-      payment_date: formDate,
-      receipt_number: formReceipt.trim() || null,
-      reference_number: null,
-      remarks: formRemarks.trim() || "Payment added by admin",
-    });
-    if (error) {
-      setMessage(`Payment save error: ${error.message}`);
-    } else {
-      setMessage(`${formBank} payment successfully add ho gayi.`);
+    try {
+      let paymentCaseId = formCaseId;
+
+      if (formManualCase) {
+        const caseTable = formBank === "SBI" ? "sbi_cases" : "cases";
+        const { data: existingCase, error: findError } = await supabase
+          .from(caseTable)
+          .select("id")
+          .eq("account_number", manualAccount)
+          .maybeSingle();
+
+        if (findError) throw findError;
+
+        if (existingCase?.id) {
+          paymentCaseId = String(existingCase.id);
+        } else {
+          const { data: createdCase, error: createError } = await supabase
+            .from(caseTable)
+            .insert({
+              account_number: manualAccount,
+              account_name: manualName,
+              branch: manualBranch,
+              bank_name:
+                formBank === "SBI"
+                  ? "State Bank of India (SBI)"
+                  : "Bank of Baroda (BOB)",
+              status: "pending",
+              remarks: "Manual case created by admin while recording payment",
+            })
+            .select("id")
+            .single();
+
+          if (createError) throw createError;
+          paymentCaseId = String(createdCase.id);
+        }
+      }
+
+      const table = formBank === "SBI" ? "sbi_payments" : "payments";
+      const { error } = await supabase.from(table).insert({
+        case_id: paymentCaseId,
+        executive_id: formExecutiveId || null,
+        amount,
+        payment_mode: formMode,
+        payment_date: formDate,
+        receipt_number: formReceipt.trim() || null,
+        reference_number: null,
+        remarks: formRemarks.trim() || "Payment added by admin",
+      });
+      if (error) throw error;
+
+      setMessage(
+        formManualCase
+          ? `${formBank} customer case aur payment successfully add ho gaye.`
+          : `${formBank} payment successfully add ho gayi.`
+      );
       setFormAmount(""); setFormReceipt(""); setFormRemarks(""); setFormCaseId(""); setFormCaseSearch(""); setFormExecutiveId("");
+      setFormManualAccount(""); setFormManualName(""); setFormManualBranch(""); setFormManualCase(false);
       await loadPayments(true);
+    } catch (error) {
+      setMessage(
+        `Payment save error: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   async function deletePayment(payment: PaymentRecord) {
@@ -543,18 +606,25 @@ function PaymentsPage() {
       <section className="payments-panel">
         <div className="payments-heading"><div><h2>Add Payment by Admin</h2><p>Bank aur case select karke verified collection entry save karein.</p></div></div>
         <form className="payments-form" onSubmit={addAdminPayment}>
-          <label>Bank<select className="payments-select" value={formBank} onChange={(e) => { setFormBank(e.target.value as PaymentBank); setFormCaseId(""); setFormCaseSearch(""); setFormExecutiveId(""); }}><option value="BOB">Bank of Baroda</option><option value="SBI">State Bank of India</option></select></label>
-          <label className="wide">Search Customer / Account<input className="payments-input" type="search" value={formCaseSearch} onChange={(e) => updateCaseSearch(e.target.value)} placeholder="Account number ya customer name type karein" /></label>
-          <label className="wide">Customer / Case<select className="payments-select" value={formCaseId} onChange={(e) => setFormCaseId(e.target.value)} required><option value="">{formCaseSearch && filteredCaseOptions.length === 0 ? "No matching case" : "Select case"}</option>{filteredCaseOptions.map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
-          {selectedAdminCase && <div className="payments-case-found">✓ Customer: {selectedAdminCase.customerName} &nbsp;|&nbsp; A/C: {selectedAdminCase.accountNumber} &nbsp;|&nbsp; Branch: {selectedAdminCase.branch || "Branch missing"}</div>}
-          <label>Branch<input className="payments-input" value={selectedAdminCase?.branch ?? ""} placeholder="Case select karne par branch aayegi" readOnly required /></label>
+          <label>Bank<select className="payments-select" value={formBank} onChange={(e) => { setFormBank(e.target.value as PaymentBank); setFormCaseId(""); setFormCaseSearch(""); setFormExecutiveId(""); setFormManualAccount(""); setFormManualName(""); setFormManualBranch(""); }}><option value="BOB">Bank of Baroda</option><option value="SBI">State Bank of India</option></select></label>
+          <label className="wide"><input type="checkbox" checked={formManualCase} onChange={(e) => { setFormManualCase(e.target.checked); setFormCaseId(""); setFormCaseSearch(""); }} /> Customer list me nahi hai</label>
+          {formManualCase ? <>
+            <label>Account Number<input className="payments-input" value={formManualAccount} onChange={(e) => setFormManualAccount(e.target.value)} placeholder="Required" required /></label>
+            <label>Customer Name<input className="payments-input" value={formManualName} onChange={(e) => setFormManualName(e.target.value)} placeholder="Required" required /></label>
+            <label>Branch<input className="payments-input" value={formManualBranch} onChange={(e) => setFormManualBranch(e.target.value)} placeholder="Required" required /></label>
+          </> : <>
+            <label className="wide">Search Customer / Account<input className="payments-input" type="search" value={formCaseSearch} onChange={(e) => updateCaseSearch(e.target.value)} placeholder="Account number ya customer name type karein" /></label>
+            <label className="wide">Customer / Case<select className="payments-select" value={formCaseId} onChange={(e) => setFormCaseId(e.target.value)} required><option value="">{formCaseSearch && filteredCaseOptions.length === 0 ? "No matching case" : "Select case"}</option>{filteredCaseOptions.map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
+            {selectedAdminCase && <div className="payments-case-found">✓ Customer: {selectedAdminCase.customerName} &nbsp;|&nbsp; A/C: {selectedAdminCase.accountNumber} &nbsp;|&nbsp; Branch: {selectedAdminCase.branch || "Branch missing"}</div>}
+            <label>Branch<input className="payments-input" value={selectedAdminCase?.branch ?? ""} placeholder="Case select karne par branch aayegi" readOnly required /></label>
+          </>}
           <label>Executive<select className="payments-select" value={formExecutiveId} onChange={(e) => setFormExecutiveId(e.target.value)}><option value="">Admin / No executive</option>{executiveOptions.filter((row) => row.bank === formBank).map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
           <label>Amount<input className="payments-input" type="number" min="1" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required /></label>
           <label>Payment Mode<select className="payments-select" value={formMode} onChange={(e) => setFormMode(e.target.value)}><option>Settlement</option><option>Palti Ki Gayi</option><option>Upgrade</option></select></label>
           <label>Payment Date<input className="payments-input" type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} required /></label>
           <label>Receipt Number<input className="payments-input" value={formReceipt} onChange={(e) => setFormReceipt(e.target.value)} placeholder="Optional" /></label>
           <label className="wide">Remarks<input className="payments-input" value={formRemarks} onChange={(e) => setFormRemarks(e.target.value)} placeholder="Optional admin note" /></label>
-          <button className="payments-save" type="submit" disabled={saving || !selectedAdminCase}>{saving ? "Saving..." : "Add Payment"}</button>
+          <button className="payments-save" type="submit" disabled={saving || (!formManualCase && !selectedAdminCase)}>{saving ? "Saving..." : formManualCase ? "Create Customer & Add Payment" : "Add Payment"}</button>
         </form>
       </section>
 
