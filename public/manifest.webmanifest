@@ -1,0 +1,20 @@
+{
+  "name": "Shiv Shakti Recovery CRM",
+  "short_name": "Shiv Shakti CRM",
+  "description": "Recovery cases, executives, payments and field operations management.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

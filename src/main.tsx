@@ -9,4 +9,12 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
+// The admin CRM remains network-first so a newly deployed production fix is
+// visible immediately instead of being hidden by an old cached application.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js')
+  })
+}
+
 
